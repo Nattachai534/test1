@@ -856,6 +856,19 @@
             setupEventListeners();
             loadData();
             loadStats();
+            
+            // เพิ่มข้อมูลทดสอบ
+            console.log('=== SYSTEM READY ===');
+            console.log('API URL:', API_URL);
+            console.log('System initialized successfully');
+            
+            // แสดงข้อความยินดีต้อนรับ
+            setTimeout(() => {
+                const stats = document.getElementById('statsGrid');
+                if (stats && stats.children.length === 0) {
+                    console.log('No data found - system is ready for first registration');
+                }
+            }, 2000);
         });
 
         function setupEventListeners() {
@@ -1016,15 +1029,16 @@
             const submitBtn = document.getElementById('submitBtn');
             const loading = document.getElementById('loading');
             
-            // Show loading
+            // แสดง loading
             submitBtn.disabled = true;
             loading.classList.add('show');
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังส่งข้อมูล...';
             
             try {
                 const formData = new FormData(event.target);
                 const attendees = [];
                 
-                // Collect attendee data
+                // เก็บข้อมูลผู้เข้าร่วม
                 const attendeeNames = formData.getAll('attendeeName[]');
                 const attendeePositions = formData.getAll('attendeePosition[]');
                 
@@ -1048,6 +1062,9 @@
                     carDetails: formData.get('carDetails') || ''
                 };
                 
+                console.log('=== FORM SUBMISSION ===');
+                console.log('Collected data:', data);
+                
                 const response = await submitToGAS(data);
                 
                 if (response.success) {
@@ -1059,11 +1076,11 @@
                         confirmButtonColor: '#10b981'
                     });
                     
-                    // Reset form
+                    // รีเซ็ตฟอร์ม
                     event.target.reset();
                     document.getElementById('carSection').classList.remove('show');
                     
-                    // Reset attendees to one item
+                    // รีเซ็ตรายชื่อผู้เข้าร่วม
                     const attendeeList = document.getElementById('attendeeList');
                     attendeeList.innerHTML = `
                         <div class="attendee-item">
@@ -1081,6 +1098,10 @@
                         </div>
                     `;
                     
+                    // รีเฟรชข้อมูล
+                    loadData();
+                    loadStats();
+                    
                 } else {
                     throw new Error(response.error || 'เกิดข้อผิดพลาดในการส่งข้อมูล');
                 }
@@ -1095,9 +1116,10 @@
                     confirmButtonColor: '#ef4444'
                 });
             } finally {
-                // Hide loading
+                // ซ่อน loading
                 submitBtn.disabled = false;
                 loading.classList.remove('show');
+                submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> ส่งข้อมูลลงทะเบียน';
             }
         }
 
@@ -1110,54 +1132,22 @@
                 data.action = 'create';
             }
             
-            try {
-                // ลองใช้ fetch ก่อน
-                console.log('Trying fetch method...');
-                
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    mode: 'cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-                
-                console.log('Fetch response status:', response.status);
-                console.log('Fetch response ok:', response.ok);
-                
-                if (response.ok) {
-                    const responseText = await response.text();
-                    console.log('Fetch response text:', responseText);
-                    
-                    try {
-                        const result = JSON.parse(responseText);
-                        console.log('Fetch parsed result:', result);
-                        return result;
-                    } catch (parseError) {
-                        console.log('JSON parse failed, assuming success');
-                        return { success: true, message: 'ส่งข้อมูลสำเร็จ (fetch)' };
-                    }
-                } else {
-                    console.log('Fetch failed, trying form method...');
-                    return await submitViaForm(data);
-                }
-                
-            } catch (fetchError) {
-                console.log('Fetch error:', fetchError.message);
-                console.log('Trying form method...');
-                return await submitViaForm(data);
-            }
+            // ใช้ iframe method เท่านั้น (ไม่ใช้ fetch)
+            return await submitViaIframe(data);
         }
 
-        async function submitViaForm(data) {
+        async function submitViaIframe(data) {
             return new Promise((resolve) => {
-                console.log('Using form submission method...');
+                console.log('=== Using iframe submission ===');
+                console.log('Data to submit:', data);
                 
-                // สร้าง iframe
+                // สร้าง iframe แบบซ่อน
                 const iframe = document.createElement('iframe');
                 iframe.style.display = 'none';
-                iframe.name = 'gasFrame_' + Date.now();
+                iframe.style.width = '0px';
+                iframe.style.height = '0px';
+                iframe.style.border = 'none';
+                iframe.name = 'submitFrame_' + Date.now();
                 document.body.appendChild(iframe);
                 
                 // สร้าง form
@@ -1165,41 +1155,38 @@
                 form.method = 'POST';
                 form.action = API_URL;
                 form.target = iframe.name;
+                form.style.display = 'none';
+                form.enctype = 'application/x-www-form-urlencoded';
                 
-                // เพิ่มข้อมูล
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'data';
-                input.value = JSON.stringify(data);
-                form.appendChild(input);
+                // เพิ่มข้อมูลทุกฟิลด์
+                const fields = {
+                    'action': data.action,
+                    'registrantName': data.registrantName || '',
+                    'registrantPhone': data.registrantPhone || '',
+                    'hospital': data.hospital || '',
+                    'attendees': JSON.stringify(data.attendees || []),
+                    'hasCar': data.hasCar || '',
+                    'carCount': data.carCount || '0',
+                    'carDetails': data.carDetails || ''
+                };
+                
+                console.log('Form fields:', fields);
+                
+                Object.keys(fields).forEach(key => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = fields[key];
+                    form.appendChild(input);
+                });
                 
                 document.body.appendChild(form);
                 
                 let completed = false;
-                const timeoutDuration = 15000; // 15 วินาที
+                const timeout = 10000; // 10 วินาที
                 
-                // Handle iframe load
-                iframe.onload = function() {
-                    if (!completed) {
-                        completed = true;
-                        console.log('Form submission completed');
-                        cleanup();
-                        resolve({ success: true, message: 'ส่งข้อมูลสำเร็จ (form)' });
-                    }
-                };
-                
-                // Handle iframe error
-                iframe.onerror = function() {
-                    if (!completed) {
-                        completed = true;
-                        console.log('Form submission error');
-                        cleanup();
-                        resolve({ success: false, error: 'การส่งข้อมูลผิดพลาด' });
-                    }
-                };
-                
-                // Cleanup function
-                function cleanup() {
+                // ฟังก์ชันทำความสะอาด
+                const cleanup = () => {
                     setTimeout(() => {
                         try {
                             if (document.body.contains(form)) {
@@ -1209,24 +1196,49 @@
                                 document.body.removeChild(iframe);
                             }
                         } catch (e) {
-                            console.log('Cleanup error:', e);
+                            console.log('Cleanup error (ignored):', e);
                         }
                     }, 1000);
-                }
+                };
+                
+                // ฟังก์ชันจบการทำงาน
+                const finish = (success, message) => {
+                    if (!completed) {
+                        completed = true;
+                        console.log('Iframe submission result:', message);
+                        cleanup();
+                        resolve({ success: success, message: message });
+                    }
+                };
+                
+                // Event handlers
+                iframe.onload = () => {
+                    console.log('Iframe loaded successfully');
+                    finish(true, 'ส่งข้อมูลสำเร็จ');
+                };
+                
+                iframe.onerror = (error) => {
+                    console.log('Iframe error:', error);
+                    finish(false, 'เกิดข้อผิดพลาดในการส่งข้อมูล');
+                };
                 
                 // Timeout
                 setTimeout(() => {
-                    if (!completed) {
-                        completed = true;
-                        console.log('Form submission timeout (assuming success)');
-                        cleanup();
-                        resolve({ success: true, message: 'ส่งข้อมูลสำเร็จ (timeout)' });
-                    }
-                }, timeoutDuration);
+                    console.log('Iframe timeout - assuming success');
+                    finish(true, 'ส่งข้อมูลสำเร็จ (timeout)');
+                }, timeout);
                 
                 // Submit form
-                console.log('Submitting form...');
-                form.submit();
+                console.log('Submitting form to:', API_URL);
+                console.log('Form target:', iframe.name);
+                
+                try {
+                    form.submit();
+                    console.log('Form submitted successfully');
+                } catch (e) {
+                    console.error('Form submit error:', e);
+                    finish(false, 'เกิดข้อผิดพลาดในการส่งฟอร์ม');
+                }
             });
         }
 
@@ -1405,19 +1417,29 @@
 
         function displayStats(stats) {
             const statsGrid = document.getElementById('statsGrid');
+            
+            // เพิ่มข้อความแนะนำถ้าไม่มีข้อมูล
+            const isEmpty = stats.totalHospitals === 0 && stats.totalCars === 0 && stats.totalAttendees === 0;
+            
             statsGrid.innerHTML = `
-                <div class="stat-card">
+                <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                     <h3>${stats.totalHospitals}</h3>
                     <p>จำนวนหน่วยงาน</p>
                 </div>
-                <div class="stat-card">
+                <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
                     <h3>${stats.totalCars}</h3>
                     <p>จำนวนรถยนต์</p>
                 </div>
-                <div class="stat-card">
+                <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
                     <h3>${stats.totalAttendees}</h3>
                     <p>จำนวนผู้เข้าร่วมงาน</p>
                 </div>
+                ${isEmpty ? `
+                    <div class="stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); grid-column: span 3;">
+                        <h3 style="font-size: 1.2rem;">🎉 ยินดีต้อนรับสู่ระบบลงทะเบียน</h3>
+                        <p>เริ่มต้นลงทะเบียนผู้เข้าร่วมงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13</p>
+                    </div>
+                ` : ''}
             `;
         }
 
@@ -1425,7 +1447,14 @@
             const tableBody = document.getElementById('recordTableBody');
             
             if (data.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">ไม่พบข้อมูล</td></tr>';
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" style="text-align: center; padding: 40px; color: #6b7280;">
+                            <div style="font-size: 1.2rem; margin-bottom: 10px;">🎯 ยังไม่มีข้อมูลการลงทะเบียน</div>
+                            <div style="font-size: 1rem;">กรุณาลงทะเบียนเพื่อเริ่มใช้งานระบบ</div>
+                        </td>
+                    </tr>
+                `;
                 return;
             }
             
@@ -1449,13 +1478,13 @@
                         <td>${carInfo}</td>
                         <td>
                             <div class="action-buttons">
-                                <button class="btn-action btn-view" onclick="viewRecord('${record.id}')">
+                                <button class="btn-action btn-view" onclick="viewRecord('${record.id}')" title="ดูรายละเอียด">
                                     <i class="fas fa-eye"></i>
                                 </button>
-                                <button class="btn-action btn-edit" onclick="editRecord('${record.id}')">
+                                <button class="btn-action btn-edit" onclick="editRecord('${record.id}')" title="แก้ไข">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button class="btn-action btn-delete" onclick="deleteRecord('${record.id}')">
+                                <button class="btn-action btn-delete" onclick="deleteRecord('${record.id}')" title="ลบ">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
