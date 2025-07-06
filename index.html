@@ -1,5 +1,5 @@
     <script>
-        const API_URL = 'https://script.google.com/macros/s/AKfycbyi6Psi8QMadZp6aWd0qHcb5S7L4mNdzgRVfkv3aIrIjD9IhiDtqTe74g0xCTQ82lvDvg/exec'; // ⚠️ ใส่ URL ใหม่ที่ได้จาก Deploy
+        const API_URL = 'https://script.google.com/macros/s/AKfycbyi6Psi8QMadZp6aWd0qHcb5S7L4mNdzgRVfkv3aIrIjD9IhiDtqTe74g0xCTQ82lvDvg/exec';
         let currentPage = 1;
         let totalPages = 1;
         let currentData = [];
@@ -10,29 +10,48 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            setupEventListeners();
-            loadDataWithRetry();
-            loadStatsWithRetry();
-            
-            console.log('=== SYSTEM READY ===');
-            console.log('API URL:', API_URL);
-            console.log('System initialized successfully');
-            
-            // เปิด debug mode เมื่อกด Ctrl+D
-            document.addEventListener('keydown', function(e) {
-                if (e.ctrlKey && e.key === 'd') {
-                    e.preventDefault();
-                    debugMode = !debugMode;
-                    const debugInfo = document.getElementById('debugInfo');
-                    if (debugMode) {
-                        debugInfo.classList.add('show');
-                        console.log('Debug mode ON');
-                    } else {
-                        debugInfo.classList.remove('show');
-                        console.log('Debug mode OFF');
+            try {
+                setupEventListeners();
+                loadDataWithRetry();
+                loadStatsWithRetry();
+                
+                console.log('=== SYSTEM READY ===');
+                console.log('API URL:', API_URL);
+                console.log('System initialized successfully');
+                
+                // เปิด debug mode เมื่อกด Ctrl+D
+                document.addEventListener('keydown', function(e) {
+                    if (e.ctrlKey && e.key === 'd') {
+                        e.preventDefault();
+                        debugMode = !debugMode;
+                        const debugInfo = document.getElementById('debugInfo');
+                        if (debugInfo) {
+                            if (debugMode) {
+                                debugInfo.classList.add('show');
+                                console.log('Debug mode ON');
+                            } else {
+                                debugInfo.classList.remove('show');
+                                console.log('Debug mode OFF');
+                            }
+                        }
                     }
+                });
+                
+                // Setup logo click event
+                const logoImg = document.getElementById('logoImg');
+                if (logoImg) {
+                    logoImg.addEventListener('click', function() {
+                        const newLogo = prompt('ใส่ URL ของโลโก้ใหม่:');
+                        if (newLogo) {
+                            this.src = newLogo;
+                        }
+                    });
                 }
-            });
+                
+            } catch (error) {
+                console.error('Error during initialization:', error);
+                updateDebugInfo('Initialization error: ' + error.message);
+            }
         });
 
         function updateDebugInfo(message) {
@@ -46,11 +65,32 @@
         }
 
         function setupEventListeners() {
-            document.getElementById('registrationForm').addEventListener('submit', handleSubmit);
-            document.getElementById('editForm').addEventListener('submit', handleEditSubmit);
-            document.getElementById('searchBox').addEventListener('input', debounce(handleSearch, 300));
-            document.getElementById('registrantPhone').addEventListener('input', validatePhone);
-            document.getElementById('editRegistrantPhone').addEventListener('input', validatePhone);
+            // Form submission
+            const registrationForm = document.getElementById('registrationForm');
+            const editForm = document.getElementById('editForm');
+            const searchBox = document.getElementById('searchBox');
+            const registrantPhone = document.getElementById('registrantPhone');
+            const editRegistrantPhone = document.getElementById('editRegistrantPhone');
+            
+            if (registrationForm) {
+                registrationForm.addEventListener('submit', handleSubmit);
+            }
+            
+            if (editForm) {
+                editForm.addEventListener('submit', handleEditSubmit);
+            }
+            
+            if (searchBox) {
+                searchBox.addEventListener('input', debounce(handleSearch, 300));
+            }
+            
+            if (registrantPhone) {
+                registrantPhone.addEventListener('input', validatePhone);
+            }
+            
+            if (editRegistrantPhone) {
+                editRegistrantPhone.addEventListener('input', validatePhone);
+            }
         }
 
         function showTab(tabName) {
@@ -1195,14 +1235,6 @@
                 closeEditModal();
             }
         }
-
-        // Logo click to change logo
-        document.getElementById('logoImg').addEventListener('click', function() {
-            const newLogo = prompt('ใส่ URL ของโลโก้ใหม่:');
-            if (newLogo) {
-                this.src = newLogo;
-            }
-        });
     </script>
 </body>
 </html><!DOCTYPE html>
