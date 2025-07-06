@@ -1,4 +1,1211 @@
-<!DOCTYPE html>
+    <script>
+        const API_URL = 'https://script.google.com/macros/s/AKfycbyi6Psi8QMadZp6aWd0qHcb5S7L4mNdzgRVfkv3aIrIjD9IhiDtqTe74g0xCTQ82lvDvg/exec'; // ⚠️ ใส่ URL ใหม่ที่ได้จาก Deploy
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentData = [];
+        let hospitalColors = {};
+        let debugMode = false;
+        let loadDataAttempts = 0;
+        const MAX_LOAD_ATTEMPTS = 3;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            setupEventListeners();
+            loadDataWithRetry();
+            loadStatsWithRetry();
+            
+            console.log('=== SYSTEM READY ===');
+            console.log('API URL:', API_URL);
+            console.log('System initialized successfully');
+            
+            // เปิด debug mode เมื่อกด Ctrl+D
+            document.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.key === 'd') {
+                    e.preventDefault();
+                    debugMode = !debugMode;
+                    const debugInfo = document.getElementById('debugInfo');
+                    if (debugMode) {
+                        debugInfo.classList.add('show');
+                        console.log('Debug mode ON');
+                    } else {
+                        debugInfo.classList.remove('show');
+                        console.log('Debug mode OFF');
+                    }
+                }
+            });
+        });
+
+        function updateDebugInfo(message) {
+            if (debugMode) {
+                const debugContent = document.getElementById('debugContent');
+                const timestamp = new Date().toLocaleTimeString();
+                debugContent.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+                debugContent.scrollTop = debugContent.scrollHeight;
+            }
+            console.log(message);
+        }
+
+        function setupEventListeners() {
+            document.getElementById('registrationForm').addEventListener('submit', handleSubmit);
+            document.getElementById('editForm').addEventListener('submit', handleEditSubmit);
+            document.getElementById('searchBox').addEventListener('input', debounce(handleSearch, 300));
+            document.getElementById('registrantPhone').addEventListener('input', validatePhone);
+            document.getElementById('editRegistrantPhone').addEventListener('input', validatePhone);
+        }
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(tabName).classList.add('active');
+            
+            document.querySelectorAll('.nav-tab').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            if (tabName === 'data') {
+                loadDataWithRetry();
+                loadStatsWithRetry();
+            }
+        }
+
+        async function loadDataWithRetry(page = 1, search = '') {
+            for (let attempt = 1; attempt <= MAX_LOAD_ATTEMPTS; attempt++) {
+                try {
+                    updateDebugInfo(`Loading data attempt ${attempt}/${MAX_LOAD_ATTEMPTS}`);
+                    const success = await loadData(page, search);
+                    if (success) {
+                        hideErrorMessage();
+                        return true;
+                    }
+                } catch (error) {
+                    updateDebugInfo(`Load attempt ${attempt} failed: ${error.message}`);
+                }
+                
+                if (attempt < MAX_LOAD_ATTEMPTS) {
+                    updateDebugInfo(`Waiting 2 seconds before retry...`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+            
+            showErrorMessage();
+            return false;
+        }
+
+        async function loadStatsWithRetry() {
+            for (let attempt = 1; attempt <= MAX_LOAD_ATTEMPTS; attempt++) {
+                try {
+                    updateDebugInfo(`Loading stats attempt ${attempt}/${MAX_LOAD_ATTEMPTS}`);
+                    const success = await loadStats();
+                    if (success) {
+                        return true;
+                    }
+                } catch (error) {
+                    updateDebugInfo(`Stats attempt ${attempt} failed: ${error.message}`);
+                }
+                
+                if (attempt < MAX_LOAD_ATTEMPTS) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            
+            // แสดงสถิติเริ่มต้นถ้าโหลดไม่ได้
+            displayStats({
+                totalHospitals: 0,
+                totalCars: 0,
+                totalAttendees: 0
+            });
+            return false;
+        }
+
+        function showErrorMessage() {
+            document.getElementById('dataErrorMessage').style.display = 'block';
+        }
+
+        function hideErrorMessage() {
+            document.getElementById('dataErrorMessage').style.display = 'none';
+        }
+
+        function retryLoadData() {
+            hideErrorMessage();
+            loadDataWithRetry(currentPage, document.getElementById('searchBox').value);
+            loadStatsWithRetry();
+        }
+
+        async function handleSubmit(event) {
+            event.preventDefault();
+            updateDebugInfo('=== FORM SUBMISSION START ===');
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const loading = document.getElementById('loading');
+            
+            submitBtn.disabled = true;
+            loading.classList.add('show');
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังส่งข้อมูล...';
+            
+            try {
+                const formData = new FormData(event.target);
+                const attendees = [];
+                
+                const attendeeNames = formData.getAll('attendeeName[]');
+                const attendeePositions = formData.getAll('attendeePosition[]');
+                
+                for (let i = 0; i < attendeeNames.length; i++) {
+                    if (attendeeNames[i].trim() && attendeePositions[i].trim()) {
+                        attendees.push({
+                            name: attendeeNames[i].trim(),
+                            position: attendeePositions[i].trim()
+                        });
+                    }
+                }
+                
+                const data = {
+                    action: 'create',
+                    registrantName: formData.get('registrantName'),
+                    registrantPhone: formData.get('registrantPhone'),
+                    hospital: formData.get('hospital'),
+                    attendees: attendees,
+                    hasCar: formData.get('hasCar'),
+                    carCount: formData.get('carCount') || 0,
+                    carDetails: formData.get('carDetails') || ''
+                };
+                
+                updateDebugInfo('Data to submit: ' + JSON.stringify(data));
+                
+                const response = await submitToGAS(data);
+                updateDebugInfo('Response received: ' + JSON.stringify(response));
+                
+                if (response.success) {
+                    await Swal.fire({
+                        title: 'สำเร็จ!',
+                        text: 'ลงทะเบียนสำเร็จ',
+                        icon: 'success',
+                        confirmButtonText: 'ตกลง',
+                        confirmButtonColor: '#10b981'
+                    });
+                    
+                    // รีเซ็ตฟอร์ม
+                    event.target.reset();
+                    document.getElementById('carSection').classList.remove('show');
+                    
+                    // รีเซ็ตรายชื่อผู้เข้าร่วม
+                    const attendeeList = document.getElementById('attendeeList');
+                    attendeeList.innerHTML = `
+                        <div class="attendee-item">
+                            <div class="form-group">
+                                <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
+                                <input type="text" name="attendeeName[]" required>
+                            </div>
+                            <div class="form-group">
+                                <label>ตำแหน่ง</label>
+                                <input type="text" name="attendeePosition[]" required>
+                            </div>
+                            <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)" style="display: none;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    
+                    loadDataWithRetry();
+                    loadStatsWithRetry();
+                    
+                } else {
+                    throw new Error(response.error || 'เกิดข้อผิดพลาดในการส่งข้อมูล');
+                }
+                
+            } catch (error) {
+                updateDebugInfo('ERROR: ' + error.message);
+                console.error('Error submitting form:', error);
+                await Swal.fire({
+                    title: 'เกิดข้อผิดพลาด!',
+                    text: error.message || 'ไม่สามารถส่งข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+                    icon: 'error',
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#ef4444'
+                });
+            } finally {
+                submitBtn.disabled = false;
+                loading.classList.remove('show');
+                submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> ส่งข้อมูลลงทะเบียน';
+            }
+        }
+
+        async function submitToGAS(data) {
+            updateDebugInfo('=== submitToGAS START ===');
+            updateDebugInfo('API URL: ' + API_URL);
+            
+            // ตรวจสอบข้อมูลที่จำเป็นตาม action
+            if (data.action === 'delete' || data.action === 'update') {
+                if (!data.id) {
+                    throw new Error('ไม่พบ ID ของข้อมูลที่ต้องการดำเนินการ');
+                }
+            } else if (data.action === 'create') {
+                if (!data.registrantName || !data.registrantPhone || !data.hospital) {
+                    throw new Error('กรุณากรอกข้อมูลให้ครบถ้วน');
+                }
+            }
+            
+            // ลองหลายวิธี
+            const methods = [
+                () => submitViaFetch(data),
+                () => submitViaFormPost(data),
+                () => submitViaIframe(data)
+            ];
+            
+            for (let i = 0; i < methods.length; i++) {
+                try {
+                    updateDebugInfo(`Trying method ${i + 1}...`);
+                    const result = await methods[i]();
+                    if (result.success) {
+                        updateDebugInfo(`Method ${i + 1} successful!`);
+                        return result;
+                    }
+                } catch (error) {
+                    updateDebugInfo(`Method ${i + 1} failed: ${error.message}`);
+                    if (i === methods.length - 1) {
+                        throw error;
+                    }
+                }
+            }
+            
+            throw new Error('ไม่สามารถส่งข้อมูลได้');
+        }
+
+        async function submitViaFetch(data) {
+            updateDebugInfo('Using fetch method...');
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                updateDebugInfo('Fetch response: ' + JSON.stringify(result));
+                
+                return result;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('การเชื่อมต่อหมดเวลา');
+                }
+                throw error;
+            }
+        }
+
+        async function submitViaFormPost(data) {
+            updateDebugInfo('Using form POST method...');
+            
+            const formData = new FormData();
+            Object.keys(data).forEach(key => {
+                if (key === 'attendees') {
+                    formData.append(key, JSON.stringify(data[key]));
+                } else {
+                    formData.append(key, data[key]);
+                }
+            });
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                updateDebugInfo('Form POST response: ' + JSON.stringify(result));
+                
+                return result;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('การเชื่อมต่อหมดเวลา');
+                }
+                throw error;
+            }
+        }
+
+        async function submitViaIframe(data) {
+            return new Promise((resolve, reject) => {
+                updateDebugInfo('Using iframe method...');
+                
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.name = 'submitFrame_' + Date.now();
+                document.body.appendChild(iframe);
+                
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = API_URL;
+                form.target = iframe.name;
+                form.style.display = 'none';
+                
+                // เพิ่มข้อมูลทุกฟิลด์
+                Object.keys(data).forEach(key => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = (key === 'attendees') ? JSON.stringify(data[key]) : data[key];
+                    form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                
+                let completed = false;
+                const timeout = 20000; // เพิ่มเวลา timeout
+                
+                const cleanup = () => {
+                    setTimeout(() => {
+                        try {
+                            if (document.body.contains(form)) document.body.removeChild(form);
+                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                        } catch (e) {
+                            console.log('Cleanup error (ignored):', e);
+                        }
+                    }, 1000);
+                };
+                
+                const finish = (success, message) => {
+                    if (!completed) {
+                        completed = true;
+                        updateDebugInfo(`Iframe result: ${success ? 'SUCCESS' : 'FAILED'} - ${message}`);
+                        cleanup();
+                        resolve({ success, message, method: 'iframe' });
+                    }
+                };
+                
+                iframe.onload = () => {
+                    updateDebugInfo('Iframe loaded successfully');
+                    setTimeout(() => finish(true, 'ส่งข้อมูลสำเร็จ (iframe)'), 3000);
+                };
+                
+                iframe.onerror = () => {
+                    updateDebugInfo('Iframe error occurred');
+                    finish(false, 'เกิดข้อผิดพลาดในการส่งข้อมูล');
+                };
+                
+                setTimeout(() => {
+                    updateDebugInfo('Iframe timeout - assuming success');
+                    finish(true, 'ส่งข้อมูลสำเร็จ (timeout assumed)');
+                }, timeout);
+                
+                form.submit();
+                updateDebugInfo('Form submitted via iframe');
+            });
+        }
+
+        async function loadData(page = 1, search = '') {
+            try {
+                updateDebugInfo(`Loading data - page: ${page}, search: "${search}"`);
+                
+                return new Promise((resolve, reject) => {
+                    const callbackName = 'handleDataResponse_' + Date.now();
+                    let timeoutId;
+                    
+                    window[callbackName] = function(result) {
+                        clearTimeout(timeoutId);
+                        updateDebugInfo('Data loaded: ' + JSON.stringify(result));
+                        
+                        try {
+                            if (result.success) {
+                                currentData = result.data || [];
+                                currentPage = result.pagination?.currentPage || 1;
+                                totalPages = result.pagination?.totalPages || 1;
+                                hospitalColors = { ...hospitalColors, ...(result.hospitalColors || {}) };
+                                
+                                displayData(result.data || []);
+                                displayPagination(result.pagination || {
+                                    currentPage: 1,
+                                    totalPages: 1,
+                                    totalRecords: 0,
+                                    hasNext: false,
+                                    hasPrev: false
+                                });
+                                resolve(true);
+                            } else {
+                                console.error('Error loading data:', result.error);
+                                displayData([]);
+                                resolve(false);
+                            }
+                        } catch (error) {
+                            console.error('Error processing data:', error);
+                            resolve(false);
+                        }
+                        
+                        // ทำความสะอาด
+                        const script = document.getElementById('jsonp-script-data');
+                        if (script && script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        delete window[callbackName];
+                    };
+                    
+                    const params = new URLSearchParams({
+                        action: 'read',
+                        page: page.toString(),
+                        limit: '10',
+                        search: search,
+                        callback: callbackName,
+                        _t: Date.now() // เพิ่ม timestamp เพื่อป้องกัน cache
+                    });
+                    
+                    const script = document.createElement('script');
+                    script.id = 'jsonp-script-data';
+                    script.src = `${API_URL}?${params.toString()}`;
+                    
+                    script.onerror = function() {
+                        clearTimeout(timeoutId);
+                        console.error('Failed to load data via JSONP');
+                        displayData([]);
+                        delete window[callbackName];
+                        resolve(false);
+                    };
+                    
+                    // Timeout
+                    timeoutId = setTimeout(() => {
+                        console.error('Data loading timeout');
+                        const script = document.getElementById('jsonp-script-data');
+                        if (script && script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        delete window[callbackName];
+                        resolve(false);
+                    }, 15000);
+                    
+                    document.head.appendChild(script);
+                });
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+                displayData([]);
+                return false;
+            }
+        }
+
+        async function loadStats() {
+            try {
+                updateDebugInfo('=== loadStats START ===');
+                
+                return new Promise((resolve) => {
+                    const callbackName = 'handleStatsResponse_' + Date.now();
+                    let timeoutId;
+                    
+                    window[callbackName] = function(result) {
+                        clearTimeout(timeoutId);
+                        updateDebugInfo('Stats loaded: ' + JSON.stringify(result));
+                        
+                        try {
+                            if (result.success) {
+                                hospitalColors = result.stats?.hospitalColors || {};
+                                displayStats(result.stats || {
+                                    totalHospitals: 0,
+                                    totalCars: 0,
+                                    totalAttendees: 0
+                                });
+                                resolve(true);
+                            } else {
+                                console.error('Error loading stats:', result.error);
+                                displayStats({
+                                    totalHospitals: 0,
+                                    totalCars: 0,
+                                    totalAttendees: 0
+                                });
+                                resolve(false);
+                            }
+                        } catch (error) {
+                            console.error('Error processing stats:', error);
+                            resolve(false);
+                        }
+                        
+                        // ทำความสะอาด
+                        const script = document.getElementById('jsonp-script-stats');
+                        if (script && script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        delete window[callbackName];
+                    };
+                    
+                    const params = new URLSearchParams({
+                        action: 'getStats',
+                        callback: callbackName,
+                        _t: Date.now() // เพิ่ม timestamp เพื่อป้องกัน cache
+                    });
+                    
+                    const script = document.createElement('script');
+                    script.id = 'jsonp-script-stats';
+                    script.src = `${API_URL}?${params.toString()}`;
+                    
+                    script.onerror = function() {
+                        clearTimeout(timeoutId);
+                        console.error('Failed to load stats via JSONP');
+                        displayStats({
+                            totalHospitals: 0,
+                            totalCars: 0,
+                            totalAttendees: 0
+                        });
+                        delete window[callbackName];
+                        resolve(false);
+                    };
+                    
+                    // Timeout
+                    timeoutId = setTimeout(() => {
+                        console.error('Stats loading timeout');
+                        const script = document.getElementById('jsonp-script-stats');
+                        if (script && script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        delete window[callbackName];
+                        resolve(false);
+                    }, 10000);
+                    
+                    document.head.appendChild(script);
+                });
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                displayStats({
+                    totalHospitals: 0,
+                    totalCars: 0,
+                    totalAttendees: 0
+                });
+                return false;
+            }
+        }
+
+        function displayStats(stats) {
+            const statsGrid = document.getElementById('statsGrid');
+            
+            const isEmpty = stats.totalHospitals === 0 && stats.totalCars === 0 && stats.totalAttendees === 0;
+            
+            statsGrid.innerHTML = `
+                <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <h3>${stats.totalHospitals}</h3>
+                    <p>จำนวนหน่วยงาน</p>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <h3>${stats.totalCars}</h3>
+                    <p>จำนวนรถยนต์</p>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                    <h3>${stats.totalAttendees}</h3>
+                    <p>จำนวนผู้เข้าร่วมงาน</p>
+                </div>
+                ${isEmpty ? `
+                    <div class="stat-card" style="background: linear-gradient(135deg, #ec4899 0%, #f472b6 100%); grid-column: span 3;">
+                        <h3 style="font-size: 1.2rem;">🎉 ยินดีต้อนรับสู่ระบบลงทะเบียน</h3>
+                        <p>เริ่มต้นลงทะเบียนผู้เข้าร่วมงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13</p>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function displayData(data) {
+            const tableBody = document.getElementById('recordTableBody');
+            
+            if (data.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" style="text-align: center; padding: 40px; color: #6b7280;">
+                            <div style="font-size: 1.2rem; margin-bottom: 10px;">🎯 ยังไม่มีข้อมูลการลงทะเบียน</div>
+                            <div style="font-size: 1rem;">กรุณาลงทะเบียนเพื่อเริ่มใช้งานระบบ</div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tableBody.innerHTML = data.map((record, index) => {
+                const hospitalColor = hospitalColors[record.hospital] || '#6b7280';
+                const attendeeCount = record.attendees ? record.attendees.length : 0;
+                const carInfo = record.hasCar === 'มีรถยนต์' ? `${record.carCount} คัน` : 'ไม่มี';
+                
+                return `
+                    <tr>
+                        <td>${(currentPage - 1) * 10 + index + 1}</td>
+                        <td>${new Date(record.timestamp).toLocaleString('th-TH')}</td>
+                        <td>${record.registrantName}</td>
+                        <td>${record.registrantPhone}</td>
+                        <td>
+                            <span class="hospital-tag" style="background-color: ${hospitalColor}">
+                                ${record.hospital}
+                            </span>
+                        </td>
+                        <td>${attendeeCount} คน</td>
+                        <td>${carInfo}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-action btn-view" onclick="viewRecord('${record.id}')" title="ดูรายละเอียด">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn-action btn-edit" onclick="editRecord('${record.id}')" title="แก้ไข">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn-action btn-delete" onclick="deleteRecord('${record.id}')" title="ลบ">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function displayPagination(pagination) {
+            const paginationContainer = document.getElementById('pagination');
+            
+            let paginationHTML = '';
+            
+            paginationHTML += `
+                <button onclick="loadDataWithRetry(${pagination.currentPage - 1}, document.getElementById('searchBox').value)" 
+                        ${!pagination.hasPrev ? 'disabled' : ''}>
+                    <i class="fas fa-chevron-left"></i> ก่อนหน้า
+                </button>
+            `;
+            
+            const startPage = Math.max(1, pagination.currentPage - 2);
+            const endPage = Math.min(pagination.totalPages, pagination.currentPage + 2);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHTML += `
+                    <button onclick="loadDataWithRetry(${i}, document.getElementById('searchBox').value)" 
+                            ${i === pagination.currentPage ? 'class="active"' : ''}>
+                        ${i}
+                    </button>
+                `;
+            }
+            
+            paginationHTML += `
+                <button onclick="loadDataWithRetry(${pagination.currentPage + 1}, document.getElementById('searchBox').value)" 
+                        ${!pagination.hasNext ? 'disabled' : ''}>
+                    ถัดไป <i class="fas fa-chevron-right"></i>
+                </button>
+            `;
+            
+            paginationContainer.innerHTML = paginationHTML;
+        }
+
+        function handleSearch(event) {
+            const searchTerm = event.target.value;
+            currentPage = 1;
+            loadDataWithRetry(1, searchTerm);
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Export PDF function
+        async function exportToPDF() {
+            try {
+                updateDebugInfo('=== PDF EXPORT START ===');
+                
+                await Swal.fire({
+                    title: 'กำลังสร้างไฟล์ PDF...',
+                    text: 'กรุณารอสักครู่',
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                // ลองใช้ JSONP method สำหรับ PDF export
+                return new Promise((resolve) => {
+                    const callbackName = 'handlePDFResponse_' + Date.now();
+                    let timeoutId;
+                    
+                    window[callbackName] = function(result) {
+                        clearTimeout(timeoutId);
+                        updateDebugInfo('PDF JSONP response: ' + JSON.stringify(result));
+                        
+                        if (result.success) {
+                            Swal.fire({
+                                title: 'สำเร็จ!',
+                                html: `สร้างไฟล์ PDF สำเร็จ<br><br>
+                                       <a href="${result.directDownload}" target="_blank" style="color: #10b981; text-decoration: underline;">
+                                           คลิกเพื่อดาวน์โหลด: ${result.fileName}
+                                       </a>`,
+                                icon: 'success',
+                                confirmButtonText: 'ตกลง',
+                                confirmButtonColor: '#10b981'
+                            });
+                            
+                            window.open(result.directDownload, '_blank');
+                        } else {
+                            Swal.fire({
+                                title: 'เกิดข้อผิดพลาด!',
+                                text: result.error || 'ไม่สามารถสร้างไฟล์ PDF ได้',
+                                icon: 'error',
+                                confirmButtonText: 'ตกลง',
+                                confirmButtonColor: '#ef4444'
+                            });
+                        }
+                        
+                        // ทำความสะอาด
+                        const script = document.getElementById('jsonp-script-pdf');
+                        if (script && script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        delete window[callbackName];
+                        resolve();
+                    };
+                    
+                    const params = new URLSearchParams({
+                        action: 'exportPDF',
+                        callback: callbackName,
+                        _t: Date.now()
+                    });
+                    
+                    const script = document.createElement('script');
+                    script.id = 'jsonp-script-pdf';
+                    script.src = `${API_URL}?${params.toString()}`;
+                    
+                    script.onerror = function() {
+                        clearTimeout(timeoutId);
+                        updateDebugInfo('PDF JSONP script failed to load');
+                        Swal.fire({
+                            title: 'เกิดข้อผิดพลาด!',
+                            text: 'ไม่สามารถสร้างไฟล์ PDF ได้',
+                            icon: 'error',
+                            confirmButtonText: 'ตกลง',
+                            confirmButtonColor: '#ef4444'
+                        });
+                        delete window[callbackName];
+                        resolve();
+                    };
+                    
+                    // Timeout
+                    timeoutId = setTimeout(() => {
+                        updateDebugInfo('PDF export timeout');
+                        const script = document.getElementById('jsonp-script-pdf');
+                        if (script && script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        Swal.fire({
+                            title: 'เกิดข้อผิดพลาด!',
+                            text: 'การสร้างไฟล์ PDF หมดเวลา',
+                            icon: 'error',
+                            confirmButtonText: 'ตกลง',
+                            confirmButtonColor: '#ef4444'
+                        });
+                        delete window[callbackName];
+                        resolve();
+                    }, 30000);
+                    
+                    document.head.appendChild(script);
+                });
+                
+            } catch (error) {
+                updateDebugInfo('PDF export error: ' + error.message);
+                console.error('Error exporting PDF:', error);
+                await Swal.fire({
+                    title: 'เกิดข้อผิดพลาด!',
+                    text: error.message || 'ไม่สามารถสร้างไฟล์ PDF ได้',
+                    icon: 'error',
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#ef4444'
+                });
+            }
+        }
+
+        // Attendee management functions
+        function addAttendee() {
+            const attendeeList = document.getElementById('attendeeList');
+            const attendeeItem = document.createElement('div');
+            attendeeItem.className = 'attendee-item';
+            attendeeItem.innerHTML = `
+                <div class="form-group">
+                    <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
+                    <input type="text" name="attendeeName[]" required>
+                </div>
+                <div class="form-group">
+                    <label>ตำแหน่ง</label>
+                    <input type="text" name="attendeePosition[]" required>
+                </div>
+                <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            attendeeList.appendChild(attendeeItem);
+            updateRemoveButtons();
+        }
+
+        function removeAttendee(button) {
+            button.closest('.attendee-item').remove();
+            updateRemoveButtons();
+        }
+
+        function updateRemoveButtons() {
+            const attendeeItems = document.querySelectorAll('#attendeeList .attendee-item');
+            attendeeItems.forEach((item, index) => {
+                const removeBtn = item.querySelector('.btn-remove-attendee');
+                if (attendeeItems.length > 1) {
+                    removeBtn.style.display = 'block';
+                } else {
+                    removeBtn.style.display = 'none';
+                }
+            });
+        }
+
+        function addEditAttendee() {
+            const attendeeList = document.getElementById('editAttendeeList');
+            const attendeeItem = document.createElement('div');
+            attendeeItem.className = 'attendee-item';
+            attendeeItem.innerHTML = `
+                <div class="form-group">
+                    <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
+                    <input type="text" name="editAttendeeName[]" required>
+                </div>
+                <div class="form-group">
+                    <label>ตำแหน่ง</label>
+                    <input type="text" name="editAttendeePosition[]" required>
+                </div>
+                <button type="button" class="btn-remove-attendee" onclick="removeEditAttendee(this)">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            attendeeList.appendChild(attendeeItem);
+            updateEditRemoveButtons();
+        }
+
+        function removeEditAttendee(button) {
+            button.closest('.attendee-item').remove();
+            updateEditRemoveButtons();
+        }
+
+        function updateEditRemoveButtons() {
+            const attendeeItems = document.querySelectorAll('#editAttendeeList .attendee-item');
+            attendeeItems.forEach((item, index) => {
+                const removeBtn = item.querySelector('.btn-remove-attendee');
+                if (attendeeItems.length > 1) {
+                    removeBtn.style.display = 'block';
+                } else {
+                    removeBtn.style.display = 'none';
+                }
+            });
+        }
+
+        // Radio button helper function
+        function selectRadio(radioId) {
+            const radio = document.getElementById(radioId);
+            if (radio) {
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change'));
+            }
+        }
+
+        function toggleCarSection() {
+            const hasCar = document.querySelector('input[name="hasCar"]:checked')?.value;
+            const carSection = document.getElementById('carSection');
+            
+            if (hasCar === 'มีรถยนต์') {
+                carSection.classList.add('show');
+                document.getElementById('carCount').required = true;
+            } else {
+                carSection.classList.remove('show');
+                document.getElementById('carCount').required = false;
+                document.getElementById('carCount').value = '';
+                document.getElementById('carDetails').value = '';
+            }
+        }
+
+        function toggleEditCarSection() {
+            const hasCar = document.querySelector('input[name="hasCar"]:checked')?.value;
+            const carSection = document.getElementById('editCarSection');
+            
+            if (hasCar === 'มีรถยนต์') {
+                carSection.classList.add('show');
+                document.getElementById('editCarCount').required = true;
+            } else {
+                carSection.classList.remove('show');
+                document.getElementById('editCarCount').required = false;
+                document.getElementById('editCarCount').value = '';
+                document.getElementById('editCarDetails').value = '';
+            }
+        }
+
+        function validatePhone(event) {
+            const phone = event.target.value;
+            const phoneRegex = /^[0-9]{10}$/;
+            
+            if (phone && !phoneRegex.test(phone)) {
+                event.target.setCustomValidity('เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก');
+            } else {
+                event.target.setCustomValidity('');
+            }
+        }
+
+        // Record management functions
+        function viewRecord(recordId) {
+            const record = currentData.find(r => r.id === recordId);
+            if (!record) return;
+            
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+            
+            modalTitle.textContent = 'รายละเอียดการลงทะเบียน';
+            
+            const attendeesList = record.attendees.map(a => 
+                `<li>${a.name} (${a.position})</li>`
+            ).join('');
+            
+            modalBody.innerHTML = `
+                <div class="detail-item">
+                    <div class="detail-label">วันที่ลงทะเบียน</div>
+                    <div class="detail-value">${new Date(record.timestamp).toLocaleString('th-TH')}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">ผู้ลงทะเบียน</div>
+                    <div class="detail-value">${record.registrantName}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">เบอร์โทรศัพท์</div>
+                    <div class="detail-value">${record.registrantPhone}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">โรงพยาบาล/สถาบัน</div>
+                    <div class="detail-value">${record.hospital}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">รายชื่อผู้เข้าร่วมงาน</div>
+                    <div class="detail-value">
+                        <ul class="attendee-list">
+                            ${attendeesList}
+                        </ul>
+                    </div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">รถยนต์</div>
+                    <div class="detail-value">${record.hasCar === 'มีรถยนต์' ? `มี ${record.carCount} คัน` : 'ไม่มี'}</div>
+                </div>
+                ${record.carDetails ? `
+                    <div class="detail-item">
+                        <div class="detail-label">รายละเอียดรถยนต์</div>
+                        <div class="detail-value">${record.carDetails}</div>
+                    </div>
+                ` : ''}
+            `;
+            
+            document.getElementById('detailModal').style.display = 'block';
+        }
+
+        function editRecord(recordId) {
+            const record = currentData.find(r => r.id === recordId);
+            if (!record) return;
+            
+            document.getElementById('editId').value = record.id;
+            document.getElementById('editRegistrantName').value = record.registrantName;
+            document.getElementById('editRegistrantPhone').value = record.registrantPhone;
+            document.getElementById('editHospital').value = record.hospital;
+            
+            if (record.hasCar === 'มีรถยนต์') {
+                document.getElementById('editHasCar').checked = true;
+                document.getElementById('editCarSection').classList.add('show');
+                document.getElementById('editCarCount').value = record.carCount;
+                document.getElementById('editCarDetails').value = record.carDetails || '';
+            } else {
+                document.getElementById('editNoCar').checked = true;
+                document.getElementById('editCarSection').classList.remove('show');
+            }
+            
+            const editAttendeeList = document.getElementById('editAttendeeList');
+            editAttendeeList.innerHTML = '';
+            
+            record.attendees.forEach((attendee, index) => {
+                const attendeeItem = document.createElement('div');
+                attendeeItem.className = 'attendee-item';
+                attendeeItem.innerHTML = `
+                    <div class="form-group">
+                        <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
+                        <input type="text" name="editAttendeeName[]" value="${attendee.name}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>ตำแหน่ง</label>
+                        <input type="text" name="editAttendeePosition[]" value="${attendee.position}" required>
+                    </div>
+                    <button type="button" class="btn-remove-attendee" onclick="removeEditAttendee(this)" 
+                            ${record.attendees.length === 1 ? 'style="display: none;"' : ''}>
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+                editAttendeeList.appendChild(attendeeItem);
+            });
+            
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        async function handleEditSubmit(event) {
+            event.preventDefault();
+            
+            try {
+                const formData = new FormData(event.target);
+                const attendees = [];
+                
+                const attendeeNames = formData.getAll('editAttendeeName[]');
+                const attendeePositions = formData.getAll('editAttendeePosition[]');
+                
+                for (let i = 0; i < attendeeNames.length; i++) {
+                    if (attendeeNames[i].trim() && attendeePositions[i].trim()) {
+                        attendees.push({
+                            name: attendeeNames[i].trim(),
+                            position: attendeePositions[i].trim()
+                        });
+                    }
+                }
+                
+                const data = {
+                    action: 'update',
+                    id: formData.get('id'),
+                    registrantName: formData.get('registrantName'),
+                    registrantPhone: formData.get('registrantPhone'),
+                    hospital: formData.get('hospital'),
+                    attendees: attendees,
+                    hasCar: formData.get('hasCar'),
+                    carCount: formData.get('carCount') || 0,
+                    carDetails: formData.get('carDetails') || ''
+                };
+                
+                const response = await submitToGAS(data);
+                
+                if (response.success) {
+                    await Swal.fire({
+                        title: 'สำเร็จ!',
+                        text: 'อัพเดทข้อมูลสำเร็จ',
+                        icon: 'success',
+                        confirmButtonText: 'ตกลง',
+                        confirmButtonColor: '#10b981'
+                    });
+                    
+                    closeEditModal();
+                    loadDataWithRetry(currentPage, document.getElementById('searchBox').value);
+                    loadStatsWithRetry();
+                } else {
+                    throw new Error(response.error || 'เกิดข้อผิดพลาดในการอัพเดทข้อมูล');
+                }
+                
+            } catch (error) {
+                console.error('Error updating record:', error);
+                await Swal.fire({
+                    title: 'เกิดข้อผิดพลาด!',
+                    text: error.message || 'ไม่สามารถอัพเดทข้อมูลได้',
+                    icon: 'error',
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#ef4444'
+                });
+            }
+        }
+
+        async function deleteRecord(recordId) {
+            const result = await Swal.fire({
+                title: 'ยืนยันการลบ',
+                text: 'คุณต้องการลบข้อมูลนี้หรือไม่?',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                cancelButtonColor: '#6b7280',
+                confirmButtonText: 'ลบ',
+                cancelButtonText: 'ยกเลิก'
+            });
+            
+            if (result.isConfirmed) {
+                try {
+                    const data = {
+                        action: 'delete',
+                        id: recordId
+                    };
+                    
+                    const response = await submitToGAS(data);
+                    
+                    if (response.success) {
+                        await Swal.fire({
+                            title: 'สำเร็จ!',
+                            text: 'ลบข้อมูลสำเร็จ',
+                            icon: 'success',
+                            confirmButtonText: 'ตกลง',
+                            confirmButtonColor: '#10b981'
+                        });
+                        
+                        loadDataWithRetry(currentPage, document.getElementById('searchBox').value);
+                        loadStatsWithRetry();
+                    } else {
+                        throw new Error(response.error || 'เกิดข้อผิดพลาดในการลบข้อมูล');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error deleting record:', error);
+                    await Swal.fire({
+                        title: 'เกิดข้อผิดพลาด!',
+                        text: error.message || 'ไม่สามารถลบข้อมูลได้',
+                        icon: 'error',
+                        confirmButtonText: 'ตกลง',
+                        confirmButtonColor: '#ef4444'
+                    });
+                }
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('detailModal').style.display = 'none';
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const detailModal = document.getElementById('detailModal');
+            const editModal = document.getElementById('editModal');
+            
+            if (event.target === detailModal) {
+                closeModal();
+            }
+            if (event.target === editModal) {
+                closeEditModal();
+            }
+        }
+
+        // Logo click to change logo
+        document.getElementById('logoImg').addEventListener('click', function() {
+            const newLogo = prompt('ใส่ URL ของโลโก้ใหม่:');
+            if (newLogo) {
+                this.src = newLogo;
+            }
+        });
+    </script>
+</body>
+</html><!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
@@ -147,23 +1354,87 @@
         .radio-group {
             display: flex;
             gap: 20px;
-            margin-top: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
         }
 
         .radio-item {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
+            background: rgba(255,255,255,0.1);
+            padding: 15px 20px;
+            border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .radio-item:hover {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.5);
+            transform: translateY(-2px);
         }
 
         .radio-item input[type="radio"] {
-            width: auto;
+            width: 20px;
+            height: 20px;
             margin: 0;
+            accent-color: #10b981;
+            cursor: pointer;
         }
 
         .radio-item label {
             margin: 0;
-            font-size: 1rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            cursor: pointer;
+            color: white;
+            flex: 1;
+        }
+
+        .radio-item input[type="radio"]:checked + label {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .radio-item:has(input[type="radio"]:checked) {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: #10b981;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+        }
+
+        /* สำหรับ Modal */
+        .modal-body .radio-group {
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .modal-body .radio-item {
+            background: rgba(30, 58, 138, 0.1);
+            border-color: rgba(30, 58, 138, 0.3);
+        }
+
+        .modal-body .radio-item:hover {
+            background: rgba(30, 58, 138, 0.2);
+            border-color: rgba(30, 58, 138, 0.5);
+        }
+
+        .modal-body .radio-item label {
+            color: #1e3a8a !important;
+        }
+
+        .modal-body .radio-item input[type="radio"]:checked + label {
+            color: #10b981 !important;
+            font-weight: 600;
+        }
+
+        .modal-body .radio-item:has(input[type="radio"]:checked) {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: #10b981;
         }
 
         .attendee-section {
@@ -251,17 +1522,44 @@
             transition: all 0.3s ease;
             width: 100%;
             margin-top: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-submit::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-submit:hover::before {
+            left: 100%;
         }
 
         .btn-submit:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
         }
 
         .btn-submit:disabled {
             background: #6b7280;
             cursor: not-allowed;
             transform: none;
+        }
+
+        .btn-submit:disabled::before {
+            display: none;
+        }
+
+        /* เพิ่มไอคอนสำหรับปุ่มบันทึก */
+        .btn-submit i {
+            margin-right: 8px;
+            font-size: 1.1rem;
         }
 
         .loading {
@@ -577,6 +1875,31 @@
             display: block;
         }
 
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #dc2626;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .retry-button {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Sarabun', sans-serif;
+            margin-top: 10px;
+        }
+
+        .retry-button:hover {
+            background: #3730a3;
+        }
+
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 1.8rem;
@@ -689,11 +2012,11 @@
                     <div class="form-group">
                         <label>ท่านมีรถยนต์มาหรือไม่ *</label>
                         <div class="radio-group">
-                            <div class="radio-item">
+                            <div class="radio-item" onclick="selectRadio('hasCar')">
                                 <input type="radio" id="hasCar" name="hasCar" value="มีรถยนต์" onchange="toggleCarSection()">
                                 <label for="hasCar">มีรถยนต์</label>
                             </div>
-                            <div class="radio-item">
+                            <div class="radio-item" onclick="selectRadio('noCar')">
                                 <input type="radio" id="noCar" name="hasCar" value="ไม่มี" onchange="toggleCarSection()">
                                 <label for="noCar">ไม่มี</label>
                             </div>
@@ -755,6 +2078,12 @@
 
                     <div class="stats-grid" id="statsGrid">
                         <!-- Stats cards will be populated here -->
+                    </div>
+
+                    <div id="dataErrorMessage" class="error-message" style="display: none;">
+                        <div>❌ ไม่สามารถโหลดข้อมูลได้</div>
+                        <div>กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</div>
+                        <button class="retry-button" onclick="retryLoadData()">ลองใหม่</button>
                     </div>
 
                     <table class="record-table" id="recordTable">
@@ -836,1099 +2165,3 @@
 
                     <div class="form-group">
                         <label>ท่านมีรถยนต์มาหรือไม่ *</label>
-                        <div class="radio-group">
-                            <div class="radio-item">
-                                <input type="radio" id="editHasCar" name="hasCar" value="มีรถยนต์" onchange="toggleEditCarSection()">
-                                <label for="editHasCar">มีรถยนต์</label>
-                            </div>
-                            <div class="radio-item">
-                                <input type="radio" id="editNoCar" name="hasCar" value="ไม่มี" onchange="toggleEditCarSection()">
-                                <label for="editNoCar">ไม่มี</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="editCarSection" class="car-section">
-                        <div class="form-group">
-                            <label for="editCarCount">นำรถยนต์มากี่คัน</label>
-                            <select id="editCarCount" name="carCount">
-                                <option value="">เลือกจำนวนรถ</option>
-                                <option value="1">1 คัน</option>
-                                <option value="2">2 คัน</option>
-                                <option value="3">3 คัน</option>
-                                <option value="4">4 คัน</option>
-                                <option value="5">5 คัน</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="editCarDetails">กรอกสีรถยนต์/ป้ายทะเบียนรถ</label>
-                            <textarea id="editCarDetails" name="carDetails" rows="3"></textarea>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn-submit">
-                        <i class="fas fa-save"></i> บันทึกการแก้ไข
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const API_URL = 'https://script.google.com/macros/s/AKfycbzPb0oWNK8ut4W6t03Vp3wb-K0v05OxUjbOdFE-4RZtARZQgxR5d8lhily0gv1VEhYlDQ/exec';
-        let currentPage = 1;
-        let totalPages = 1;
-        let currentData = [];
-        let hospitalColors = {};
-        let debugMode = false;
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            setupEventListeners();
-            loadData();
-            loadStats();
-            
-            console.log('=== SYSTEM READY ===');
-            console.log('API URL:', API_URL);
-            console.log('System initialized successfully');
-            
-            // เปิด debug mode เมื่อกด Ctrl+D
-            document.addEventListener('keydown', function(e) {
-                if (e.ctrlKey && e.key === 'd') {
-                    e.preventDefault();
-                    debugMode = !debugMode;
-                    const debugInfo = document.getElementById('debugInfo');
-                    if (debugMode) {
-                        debugInfo.classList.add('show');
-                        console.log('Debug mode ON');
-                    } else {
-                        debugInfo.classList.remove('show');
-                        console.log('Debug mode OFF');
-                    }
-                }
-            });
-        });
-
-        function updateDebugInfo(message) {
-            if (debugMode) {
-                const debugContent = document.getElementById('debugContent');
-                const timestamp = new Date().toLocaleTimeString();
-                debugContent.innerHTML += `<div>[${timestamp}] ${message}</div>`;
-                debugContent.scrollTop = debugContent.scrollHeight;
-            }
-            console.log(message);
-        }
-
-        function setupEventListeners() {
-            document.getElementById('registrationForm').addEventListener('submit', handleSubmit);
-            document.getElementById('editForm').addEventListener('submit', handleEditSubmit);
-            document.getElementById('searchBox').addEventListener('input', debounce(handleSearch, 300));
-            document.getElementById('registrantPhone').addEventListener('input', validatePhone);
-            document.getElementById('editRegistrantPhone').addEventListener('input', validatePhone);
-        }
-
-        function showTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            document.getElementById(tabName).classList.add('active');
-            
-            document.querySelectorAll('.nav-tab').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
-            if (tabName === 'data') {
-                loadData();
-                loadStats();
-            }
-        }
-
-        async function handleSubmit(event) {
-            event.preventDefault();
-            updateDebugInfo('=== FORM SUBMISSION START ===');
-            
-            const submitBtn = document.getElementById('submitBtn');
-            const loading = document.getElementById('loading');
-            
-            submitBtn.disabled = true;
-            loading.classList.add('show');
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังส่งข้อมูล...';
-            
-            try {
-                const formData = new FormData(event.target);
-                const attendees = [];
-                
-                const attendeeNames = formData.getAll('attendeeName[]');
-                const attendeePositions = formData.getAll('attendeePosition[]');
-                
-                for (let i = 0; i < attendeeNames.length; i++) {
-                    if (attendeeNames[i].trim() && attendeePositions[i].trim()) {
-                        attendees.push({
-                            name: attendeeNames[i].trim(),
-                            position: attendeePositions[i].trim()
-                        });
-                    }
-                }
-                
-                const data = {
-                    action: 'create',
-                    registrantName: formData.get('registrantName'),
-                    registrantPhone: formData.get('registrantPhone'),
-                    hospital: formData.get('hospital'),
-                    attendees: attendees,
-                    hasCar: formData.get('hasCar'),
-                    carCount: formData.get('carCount') || 0,
-                    carDetails: formData.get('carDetails') || ''
-                };
-                
-                updateDebugInfo('Data to submit: ' + JSON.stringify(data));
-                
-                const response = await submitToGAS(data);
-                updateDebugInfo('Response received: ' + JSON.stringify(response));
-                
-                if (response.success) {
-                    await Swal.fire({
-                        title: 'สำเร็จ!',
-                        text: 'ลงทะเบียนสำเร็จ',
-                        icon: 'success',
-                        confirmButtonText: 'ตกลง',
-                        confirmButtonColor: '#10b981'
-                    });
-                    
-                    // รีเซ็ตฟอร์ม
-                    event.target.reset();
-                    document.getElementById('carSection').classList.remove('show');
-                    
-                    // รีเซ็ตรายชื่อผู้เข้าร่วม
-                    const attendeeList = document.getElementById('attendeeList');
-                    attendeeList.innerHTML = `
-                        <div class="attendee-item">
-                            <div class="form-group">
-                                <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                                <input type="text" name="attendeeName[]" required>
-                            </div>
-                            <div class="form-group">
-                                <label>ตำแหน่ง</label>
-                                <input type="text" name="attendeePosition[]" required>
-                            </div>
-                            <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)" style="display: none;">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    `;
-                    
-                    loadData();
-                    loadStats();
-                    
-                } else {
-                    throw new Error(response.error || 'เกิดข้อผิดพลาดในการส่งข้อมูล');
-                }
-                
-            } catch (error) {
-                updateDebugInfo('ERROR: ' + error.message);
-                console.error('Error submitting form:', error);
-                await Swal.fire({
-                    title: 'เกิดข้อผิดพลาด!',
-                    text: error.message || 'ไม่สามารถส่งข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
-                    icon: 'error',
-                    confirmButtonText: 'ตกลง',
-                    confirmButtonColor: '#ef4444'
-                });
-            } finally {
-                submitBtn.disabled = false;
-                loading.classList.remove('show');
-                submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> ส่งข้อมูลลงทะเบียน';
-            }
-        }
-
-        async function submitToGAS(data) {
-            updateDebugInfo('=== submitToGAS START ===');
-            updateDebugInfo('API URL: ' + API_URL);
-            
-            // ตรวจสอบข้อมูลที่จำเป็น
-            if (!data.registrantName || !data.registrantPhone || !data.hospital) {
-                throw new Error('กรุณากรอกข้อมูลให้ครบถ้วน');
-            }
-            
-            // ลองหลายวิธี
-            const methods = [
-                () => submitViaFetch(data),
-                () => submitViaFormPost(data),
-                () => submitViaIframe(data)
-            ];
-            
-            for (let i = 0; i < methods.length; i++) {
-                try {
-                    updateDebugInfo(`Trying method ${i + 1}...`);
-                    const result = await methods[i]();
-                    if (result.success) {
-                        updateDebugInfo(`Method ${i + 1} successful!`);
-                        return result;
-                    }
-                } catch (error) {
-                    updateDebugInfo(`Method ${i + 1} failed: ${error.message}`);
-                    if (i === methods.length - 1) {
-                        throw error;
-                    }
-                }
-            }
-            
-            throw new Error('ไม่สามารถส่งข้อมูลได้');
-        }
-
-        async function submitViaFetch(data) {
-            updateDebugInfo('Using fetch method...');
-            
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data),
-                mode: 'cors'
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const result = await response.json();
-            updateDebugInfo('Fetch response: ' + JSON.stringify(result));
-            
-            return result;
-        }
-
-        async function submitViaFormPost(data) {
-            updateDebugInfo('Using form POST method...');
-            
-            const formData = new FormData();
-            Object.keys(data).forEach(key => {
-                if (key === 'attendees') {
-                    formData.append(key, JSON.stringify(data[key]));
-                } else {
-                    formData.append(key, data[key]);
-                }
-            });
-            
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                body: formData,
-                mode: 'cors'
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const result = await response.json();
-            updateDebugInfo('Form POST response: ' + JSON.stringify(result));
-            
-            return result;
-        }
-
-        async function submitViaIframe(data) {
-            return new Promise((resolve, reject) => {
-                updateDebugInfo('Using iframe method...');
-                
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.name = 'submitFrame_' + Date.now();
-                document.body.appendChild(iframe);
-                
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = API_URL;
-                form.target = iframe.name;
-                form.style.display = 'none';
-                
-                // เพิ่มข้อมูลทุกฟิลด์
-                Object.keys(data).forEach(key => {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = key;
-                    input.value = (key === 'attendees') ? JSON.stringify(data[key]) : data[key];
-                    form.appendChild(input);
-                });
-                
-                document.body.appendChild(form);
-                
-                let completed = false;
-                const timeout = 15000;
-                
-                const cleanup = () => {
-                    setTimeout(() => {
-                        try {
-                            if (document.body.contains(form)) document.body.removeChild(form);
-                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                        } catch (e) {
-                            console.log('Cleanup error (ignored):', e);
-                        }
-                    }, 1000);
-                };
-                
-                const finish = (success, message) => {
-                    if (!completed) {
-                        completed = true;
-                        updateDebugInfo(`Iframe result: ${success ? 'SUCCESS' : 'FAILED'} - ${message}`);
-                        cleanup();
-                        resolve({ success, message, method: 'iframe' });
-                    }
-                };
-                
-                iframe.onload = () => {
-                    updateDebugInfo('Iframe loaded successfully');
-                    setTimeout(() => finish(true, 'ส่งข้อมูลสำเร็จ (iframe)'), 2000);
-                };
-                
-                iframe.onerror = () => {
-                    updateDebugInfo('Iframe error occurred');
-                    finish(false, 'เกิดข้อผิดพลาดในการส่งข้อมูล');
-                };
-                
-                setTimeout(() => {
-                    updateDebugInfo('Iframe timeout - assuming success');
-                    finish(true, 'ส่งข้อมูลสำเร็จ (timeout assumed)');
-                }, timeout);
-                
-                form.submit();
-                updateDebugInfo('Form submitted via iframe');
-            });
-        }
-
-        async function exportToPDF() {
-            try {
-                updateDebugInfo('=== PDF EXPORT START ===');
-                
-                await Swal.fire({
-                    title: 'กำลังสร้างไฟล์ PDF...',
-                    text: 'กรุณารอสักครู่',
-                    allowOutsideClick: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
-                });
-                
-                // ลองใช้ fetch ก่อน
-                try {
-                    const response = await fetch(`${API_URL}?action=exportPDF`, {
-                        method: 'GET',
-                        mode: 'cors'
-                    });
-                    
-                    if (response.ok) {
-                        const result = await response.json();
-                        updateDebugInfo('PDF export response: ' + JSON.stringify(result));
-                        
-                        if (result.success) {
-                            await Swal.fire({
-                                title: 'สำเร็จ!',
-                                html: `สร้างไฟล์ PDF สำเร็จ<br><br>
-                                       <a href="${result.directDownload}" target="_blank" style="color: #10b981; text-decoration: underline;">
-                                           คลิกเพื่อดาวน์โหลด: ${result.fileName}
-                                       </a>`,
-                                icon: 'success',
-                                confirmButtonText: 'ตกลง',
-                                confirmButtonColor: '#10b981'
-                            });
-                            
-                            // เปิดลิงก์ดาวน์โหลดในแท็บใหม่
-                            window.open(result.directDownload, '_blank');
-                            
-                            return;
-                        }
-                    }
-                } catch (fetchError) {
-                    updateDebugInfo('PDF export fetch failed: ' + fetchError.message);
-                }
-                
-                // ถ้า fetch ไม่ได้ ใช้ JSONP
-                updateDebugInfo('Trying JSONP method for PDF export...');
-                
-                return new Promise((resolve) => {
-                    const callbackName = 'handlePDFResponse_' + Date.now();
-                    
-                    window[callbackName] = function(result) {
-                        updateDebugInfo('PDF JSONP response: ' + JSON.stringify(result));
-                        
-                        if (result.success) {
-                            Swal.fire({
-                                title: 'สำเร็จ!',
-                                html: `สร้างไฟล์ PDF สำเร็จ<br><br>
-                                       <a href="${result.directDownload}" target="_blank" style="color: #10b981; text-decoration: underline;">
-                                           คลิกเพื่อดาวน์โหลด: ${result.fileName}
-                                       </a>`,
-                                icon: 'success',
-                                confirmButtonText: 'ตกลง',
-                                confirmButtonColor: '#10b981'
-                            });
-                            
-                            window.open(result.directDownload, '_blank');
-                        } else {
-                            Swal.fire({
-                                title: 'เกิดข้อผิดพลาด!',
-                                text: result.error || 'ไม่สามารถสร้างไฟล์ PDF ได้',
-                                icon: 'error',
-                                confirmButtonText: 'ตกลง',
-                                confirmButtonColor: '#ef4444'
-                            });
-                        }
-                        
-                        // ทำความสะอาด
-                        const script = document.getElementById('jsonp-script-pdf');
-                        if (script && script.parentNode) {
-                            script.parentNode.removeChild(script);
-                        }
-                        delete window[callbackName];
-                        resolve();
-                    };
-                    
-                    const script = document.createElement('script');
-                    script.id = 'jsonp-script-pdf';
-                    script.src = `${API_URL}?action=exportPDF&callback=${callbackName}`;
-                    script.onerror = function() {
-                        updateDebugInfo('PDF JSONP script failed to load');
-                        Swal.fire({
-                            title: 'เกิดข้อผิดพลาด!',
-                            text: 'ไม่สามารถสร้างไฟล์ PDF ได้',
-                            icon: 'error',
-                            confirmButtonText: 'ตกลง',
-                            confirmButtonColor: '#ef4444'
-                        });
-                        delete window[callbackName];
-                        resolve();
-                    };
-                    
-                    document.head.appendChild(script);
-                });
-                
-            } catch (error) {
-                updateDebugInfo('PDF export error: ' + error.message);
-                console.error('Error exporting PDF:', error);
-                await Swal.fire({
-                    title: 'เกิดข้อผิดพลาด!',
-                    text: error.message || 'ไม่สามารถสร้างไฟล์ PDF ได้',
-                    icon: 'error',
-                    confirmButtonText: 'ตกลง',
-                    confirmButtonColor: '#ef4444'
-                });
-            }
-        }
-
-        async function loadData(page = 1, search = '') {
-            try {
-                updateDebugInfo(`Loading data - page: ${page}, search: "${search}"`);
-                
-                return new Promise((resolve, reject) => {
-                    const params = new URLSearchParams({
-                        action: 'read',
-                        page: page.toString(),
-                        limit: '10',
-                        search: search,
-                        callback: 'handleDataResponse'
-                    });
-                    
-                    window.handleDataResponse = function(result) {
-                        updateDebugInfo('Data loaded: ' + JSON.stringify(result));
-                        
-                        if (result.success) {
-                            currentData = result.data || [];
-                            currentPage = result.pagination?.currentPage || 1;
-                            totalPages = result.pagination?.totalPages || 1;
-                            hospitalColors = { ...hospitalColors, ...(result.hospitalColors || {}) };
-                            
-                            displayData(result.data || []);
-                            displayPagination(result.pagination || {
-                                currentPage: 1,
-                                totalPages: 1,
-                                totalRecords: 0,
-                                hasNext: false,
-                                hasPrev: false
-                            });
-                        } else {
-                            console.error('Error loading data:', result.error);
-                            displayData([]);
-                        }
-                        
-                        const script = document.getElementById('jsonp-script-data');
-                        if (script) {
-                            document.head.removeChild(script);
-                        }
-                        
-                        resolve();
-                    };
-                    
-                    const script = document.createElement('script');
-                    script.id = 'jsonp-script-data';
-                    script.src = `${API_URL}?${params.toString()}`;
-                    script.onerror = function() {
-                        console.error('Failed to load data via JSONP');
-                        displayData([]);
-                        resolve();
-                    };
-                    
-                    document.head.appendChild(script);
-                });
-                
-            } catch (error) {
-                console.error('Error loading data:', error);
-                displayData([]);
-            }
-        }
-
-        async function loadStats() {
-            try {
-                updateDebugInfo('=== loadStats START ===');
-                
-                return new Promise((resolve) => {
-                    const callbackName = 'handleStatsResponse_' + Date.now();
-                    const params = new URLSearchParams({
-                        action: 'getStats',
-                        callback: callbackName
-                    });
-                    
-                    window[callbackName] = function(result) {
-                        updateDebugInfo('Stats loaded: ' + JSON.stringify(result));
-                        
-                        if (result.success) {
-                            hospitalColors = result.stats?.hospitalColors || {};
-                            displayStats(result.stats || {
-                                totalHospitals: 0,
-                                totalCars: 0,
-                                totalAttendees: 0
-                            });
-                        } else {
-                            console.error('Error loading stats:', result.error);
-                            displayStats({
-                                totalHospitals: 0,
-                                totalCars: 0,
-                                totalAttendees: 0
-                            });
-                        }
-                        
-                        const script = document.getElementById('jsonp-script-stats');
-                        if (script && script.parentNode) {
-                            script.parentNode.removeChild(script);
-                        }
-                        delete window[callbackName];
-                        
-                        resolve();
-                    };
-                    
-                    const script = document.createElement('script');
-                    script.id = 'jsonp-script-stats';
-                    script.src = `${API_URL}?${params.toString()}`;
-                    script.onerror = function() {
-                        console.error('Failed to load stats via JSONP');
-                        displayStats({
-                            totalHospitals: 0,
-                            totalCars: 0,
-                            totalAttendees: 0
-                        });
-                        delete window[callbackName];
-                        resolve();
-                    };
-                    
-                    document.head.appendChild(script);
-                });
-                
-            } catch (error) {
-                console.error('Error loading stats:', error);
-                displayStats({
-                    totalHospitals: 0,
-                    totalCars: 0,
-                    totalAttendees: 0
-                });
-            }
-        }
-
-        function displayStats(stats) {
-            const statsGrid = document.getElementById('statsGrid');
-            
-            const isEmpty = stats.totalHospitals === 0 && stats.totalCars === 0 && stats.totalAttendees === 0;
-            
-            statsGrid.innerHTML = `
-                <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                    <h3>${stats.totalHospitals}</h3>
-                    <p>จำนวนหน่วยงาน</p>
-                </div>
-                <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                    <h3>${stats.totalCars}</h3>
-                    <p>จำนวนรถยนต์</p>
-                </div>
-                <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                    <h3>${stats.totalAttendees}</h3>
-                    <p>จำนวนผู้เข้าร่วมงาน</p>
-                </div>
-                ${isEmpty ? `
-                    <div class="stat-card" style="background: linear-gradient(135deg, #ec4899 0%, #f472b6 100%); grid-column: span 3;">
-                        <h3 style="font-size: 1.2rem;">🎉 ยินดีต้อนรับสู่ระบบลงทะเบียน</h3>
-                        <p>เริ่มต้นลงทะเบียนผู้เข้าร่วมงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13</p>
-                    </div>
-                ` : ''}
-            `;
-        }
-
-        function displayData(data) {
-            const tableBody = document.getElementById('recordTableBody');
-            
-            if (data.length === 0) {
-                tableBody.innerHTML = `
-                    <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px; color: #6b7280;">
-                            <div style="font-size: 1.2rem; margin-bottom: 10px;">🎯 ยังไม่มีข้อมูลการลงทะเบียน</div>
-                            <div style="font-size: 1rem;">กรุณาลงทะเบียนเพื่อเริ่มใช้งานระบบ</div>
-                        </td>
-                    </tr>
-                `;
-                return;
-            }
-            
-            tableBody.innerHTML = data.map((record, index) => {
-                const hospitalColor = hospitalColors[record.hospital] || '#6b7280';
-                const attendeeCount = record.attendees ? record.attendees.length : 0;
-                const carInfo = record.hasCar === 'มีรถยนต์' ? `${record.carCount} คัน` : 'ไม่มี';
-                
-                return `
-                    <tr>
-                        <td>${(currentPage - 1) * 10 + index + 1}</td>
-                        <td>${new Date(record.timestamp).toLocaleString('th-TH')}</td>
-                        <td>${record.registrantName}</td>
-                        <td>${record.registrantPhone}</td>
-                        <td>
-                            <span class="hospital-tag" style="background-color: ${hospitalColor}">
-                                ${record.hospital}
-                            </span>
-                        </td>
-                        <td>${attendeeCount} คน</td>
-                        <td>${carInfo}</td>
-                        <td>
-                            <div class="action-buttons">
-                                <button class="btn-action btn-view" onclick="viewRecord('${record.id}')" title="ดูรายละเอียด">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn-action btn-edit" onclick="editRecord('${record.id}')" title="แก้ไข">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="btn-action btn-delete" onclick="deleteRecord('${record.id}')" title="ลบ">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function displayPagination(pagination) {
-            const paginationContainer = document.getElementById('pagination');
-            
-            let paginationHTML = '';
-            
-            paginationHTML += `
-                <button onclick="loadData(${pagination.currentPage - 1}, document.getElementById('searchBox').value)" 
-                        ${!pagination.hasPrev ? 'disabled' : ''}>
-                    <i class="fas fa-chevron-left"></i> ก่อนหน้า
-                </button>
-            `;
-            
-            const startPage = Math.max(1, pagination.currentPage - 2);
-            const endPage = Math.min(pagination.totalPages, pagination.currentPage + 2);
-            
-            for (let i = startPage; i <= endPage; i++) {
-                paginationHTML += `
-                    <button onclick="loadData(${i}, document.getElementById('searchBox').value)" 
-                            ${i === pagination.currentPage ? 'class="active"' : ''}>
-                        ${i}
-                    </button>
-                `;
-            }
-            
-            paginationHTML += `
-                <button onclick="loadData(${pagination.currentPage + 1}, document.getElementById('searchBox').value)" 
-                        ${!pagination.hasNext ? 'disabled' : ''}>
-                    ถัดไป <i class="fas fa-chevron-right"></i>
-                </button>
-            `;
-            
-            paginationContainer.innerHTML = paginationHTML;
-        }
-
-        function handleSearch(event) {
-            const searchTerm = event.target.value;
-            currentPage = 1;
-            loadData(1, searchTerm);
-        }
-
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        }
-
-        // Attendee management functions
-        function addAttendee() {
-            const attendeeList = document.getElementById('attendeeList');
-            const attendeeItem = document.createElement('div');
-            attendeeItem.className = 'attendee-item';
-            attendeeItem.innerHTML = `
-                <div class="form-group">
-                    <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                    <input type="text" name="attendeeName[]" required>
-                </div>
-                <div class="form-group">
-                    <label>ตำแหน่ง</label>
-                    <input type="text" name="attendeePosition[]" required>
-                </div>
-                <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)">
-                    <i class="fas fa-trash"></i>
-                </button>
-            `;
-            attendeeList.appendChild(attendeeItem);
-            updateRemoveButtons();
-        }
-
-        function removeAttendee(button) {
-            button.closest('.attendee-item').remove();
-            updateRemoveButtons();
-        }
-
-        function updateRemoveButtons() {
-            const attendeeItems = document.querySelectorAll('#attendeeList .attendee-item');
-            attendeeItems.forEach((item, index) => {
-                const removeBtn = item.querySelector('.btn-remove-attendee');
-                if (attendeeItems.length > 1) {
-                    removeBtn.style.display = 'block';
-                } else {
-                    removeBtn.style.display = 'none';
-                }
-            });
-        }
-
-        function addEditAttendee() {
-            const attendeeList = document.getElementById('editAttendeeList');
-            const attendeeItem = document.createElement('div');
-            attendeeItem.className = 'attendee-item';
-            attendeeItem.innerHTML = `
-                <div class="form-group">
-                    <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                    <input type="text" name="editAttendeeName[]" required>
-                </div>
-                <div class="form-group">
-                    <label>ตำแหน่ง</label>
-                    <input type="text" name="editAttendeePosition[]" required>
-                </div>
-                <button type="button" class="btn-remove-attendee" onclick="removeEditAttendee(this)">
-                    <i class="fas fa-trash"></i>
-                </button>
-            `;
-            attendeeList.appendChild(attendeeItem);
-            updateEditRemoveButtons();
-        }
-
-        function removeEditAttendee(button) {
-            button.closest('.attendee-item').remove();
-            updateEditRemoveButtons();
-        }
-
-        function updateEditRemoveButtons() {
-            const attendeeItems = document.querySelectorAll('#editAttendeeList .attendee-item');
-            attendeeItems.forEach((item, index) => {
-                const removeBtn = item.querySelector('.btn-remove-attendee');
-                if (attendeeItems.length > 1) {
-                    removeBtn.style.display = 'block';
-                } else {
-                    removeBtn.style.display = 'none';
-                }
-            });
-        }
-
-        function toggleCarSection() {
-            const hasCar = document.querySelector('input[name="hasCar"]:checked')?.value;
-            const carSection = document.getElementById('carSection');
-            
-            if (hasCar === 'มีรถยนต์') {
-                carSection.classList.add('show');
-                document.getElementById('carCount').required = true;
-            } else {
-                carSection.classList.remove('show');
-                document.getElementById('carCount').required = false;
-                document.getElementById('carCount').value = '';
-                document.getElementById('carDetails').value = '';
-            }
-        }
-
-        function toggleEditCarSection() {
-            const hasCar = document.querySelector('input[name="hasCar"]:checked')?.value;
-            const carSection = document.getElementById('editCarSection');
-            
-            if (hasCar === 'มีรถยนต์') {
-                carSection.classList.add('show');
-                document.getElementById('editCarCount').required = true;
-            } else {
-                carSection.classList.remove('show');
-                document.getElementById('editCarCount').required = false;
-                document.getElementById('editCarCount').value = '';
-                document.getElementById('editCarDetails').value = '';
-            }
-        }
-
-        function validatePhone(event) {
-            const phone = event.target.value;
-            const phoneRegex = /^[0-9]{10}$/;
-            
-            if (phone && !phoneRegex.test(phone)) {
-                event.target.setCustomValidity('เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก');
-            } else {
-                event.target.setCustomValidity('');
-            }
-        }
-
-        // Record management functions
-        function viewRecord(recordId) {
-            const record = currentData.find(r => r.id === recordId);
-            if (!record) return;
-            
-            const modalTitle = document.getElementById('modalTitle');
-            const modalBody = document.getElementById('modalBody');
-            
-            modalTitle.textContent = 'รายละเอียดการลงทะเบียน';
-            
-            const attendeesList = record.attendees.map(a => 
-                `<li>${a.name} (${a.position})</li>`
-            ).join('');
-            
-            modalBody.innerHTML = `
-                <div class="detail-item">
-                    <div class="detail-label">วันที่ลงทะเบียน</div>
-                    <div class="detail-value">${new Date(record.timestamp).toLocaleString('th-TH')}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">ผู้ลงทะเบียน</div>
-                    <div class="detail-value">${record.registrantName}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">เบอร์โทรศัพท์</div>
-                    <div class="detail-value">${record.registrantPhone}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">โรงพยาบาล/สถาบัน</div>
-                    <div class="detail-value">${record.hospital}</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">รายชื่อผู้เข้าร่วมงาน</div>
-                    <div class="detail-value">
-                        <ul class="attendee-list">
-                            ${attendeesList}
-                        </ul>
-                    </div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">รถยนต์</div>
-                    <div class="detail-value">${record.hasCar === 'มีรถยนต์' ? `มี ${record.carCount} คัน` : 'ไม่มี'}</div>
-                </div>
-                ${record.carDetails ? `
-                    <div class="detail-item">
-                        <div class="detail-label">รายละเอียดรถยนต์</div>
-                        <div class="detail-value">${record.carDetails}</div>
-                    </div>
-                ` : ''}
-            `;
-            
-            document.getElementById('detailModal').style.display = 'block';
-        }
-
-        function editRecord(recordId) {
-            const record = currentData.find(r => r.id === recordId);
-            if (!record) return;
-            
-            document.getElementById('editId').value = record.id;
-            document.getElementById('editRegistrantName').value = record.registrantName;
-            document.getElementById('editRegistrantPhone').value = record.registrantPhone;
-            document.getElementById('editHospital').value = record.hospital;
-            
-            if (record.hasCar === 'มีรถยนต์') {
-                document.getElementById('editHasCar').checked = true;
-                document.getElementById('editCarSection').classList.add('show');
-                document.getElementById('editCarCount').value = record.carCount;
-                document.getElementById('editCarDetails').value = record.carDetails || '';
-            } else {
-                document.getElementById('editNoCar').checked = true;
-                document.getElementById('editCarSection').classList.remove('show');
-            }
-            
-            const editAttendeeList = document.getElementById('editAttendeeList');
-            editAttendeeList.innerHTML = '';
-            
-            record.attendees.forEach((attendee, index) => {
-                const attendeeItem = document.createElement('div');
-                attendeeItem.className = 'attendee-item';
-                attendeeItem.innerHTML = `
-                    <div class="form-group">
-                        <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                        <input type="text" name="editAttendeeName[]" value="${attendee.name}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>ตำแหน่ง</label>
-                        <input type="text" name="editAttendeePosition[]" value="${attendee.position}" required>
-                    </div>
-                    <button type="button" class="btn-remove-attendee" onclick="removeEditAttendee(this)" 
-                            ${record.attendees.length === 1 ? 'style="display: none;"' : ''}>
-                        <i class="fas fa-trash"></i>
-                    </button>
-                `;
-                editAttendeeList.appendChild(attendeeItem);
-            });
-            
-            document.getElementById('editModal').style.display = 'block';
-        }
-
-        async function handleEditSubmit(event) {
-            event.preventDefault();
-            
-            try {
-                const formData = new FormData(event.target);
-                const attendees = [];
-                
-                const attendeeNames = formData.getAll('editAttendeeName[]');
-                const attendeePositions = formData.getAll('editAttendeePosition[]');
-                
-                for (let i = 0; i < attendeeNames.length; i++) {
-                    if (attendeeNames[i].trim() && attendeePositions[i].trim()) {
-                        attendees.push({
-                            name: attendeeNames[i].trim(),
-                            position: attendeePositions[i].trim()
-                        });
-                    }
-                }
-                
-                const data = {
-                    action: 'update',
-                    id: formData.get('id'),
-                    registrantName: formData.get('registrantName'),
-                    registrantPhone: formData.get('registrantPhone'),
-                    hospital: formData.get('hospital'),
-                    attendees: attendees,
-                    hasCar: formData.get('hasCar'),
-                    carCount: formData.get('carCount') || 0,
-                    carDetails: formData.get('carDetails') || ''
-                };
-                
-                const response = await submitToGAS(data);
-                
-                if (response.success) {
-                    await Swal.fire({
-                        title: 'สำเร็จ!',
-                        text: 'อัพเดทข้อมูลสำเร็จ',
-                        icon: 'success',
-                        confirmButtonText: 'ตกลง',
-                        confirmButtonColor: '#10b981'
-                    });
-                    
-                    closeEditModal();
-                    loadData(currentPage, document.getElementById('searchBox').value);
-                    loadStats();
-                } else {
-                    throw new Error(response.error || 'เกิดข้อผิดพลาดในการอัพเดทข้อมูล');
-                }
-                
-            } catch (error) {
-                console.error('Error updating record:', error);
-                await Swal.fire({
-                    title: 'เกิดข้อผิดพลาด!',
-                    text: error.message || 'ไม่สามารถอัพเดทข้อมูลได้',
-                    icon: 'error',
-                    confirmButtonText: 'ตกลง',
-                    confirmButtonColor: '#ef4444'
-                });
-            }
-        }
-
-        async function deleteRecord(recordId) {
-            const result = await Swal.fire({
-                title: 'ยืนยันการลบ',
-                text: 'คุณต้องการลบข้อมูลนี้หรือไม่?',
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#ef4444',
-                cancelButtonColor: '#6b7280',
-                confirmButtonText: 'ลบ',
-                cancelButtonText: 'ยกเลิก'
-            });
-            
-            if (result.isConfirmed) {
-                try {
-                    const data = {
-                        action: 'delete',
-                        id: recordId
-                    };
-                    
-                    const response = await submitToGAS(data);
-                    
-                    if (response.success) {
-                        await Swal.fire({
-                            title: 'สำเร็จ!',
-                            text: 'ลบข้อมูลสำเร็จ',
-                            icon: 'success',
-                            confirmButtonText: 'ตกลง',
-                            confirmButtonColor: '#10b981'
-                        });
-                        
-                        loadData(currentPage, document.getElementById('searchBox').value);
-                        loadStats();
-                    } else {
-                        throw new Error(response.error || 'เกิดข้อผิดพลาดในการลบข้อมูล');
-                    }
-                    
-                } catch (error) {
-                    console.error('Error deleting record:', error);
-                    await Swal.fire({
-                        title: 'เกิดข้อผิดพลาด!',
-                        text: error.message || 'ไม่สามารถลบข้อมูลได้',
-                        icon: 'error',
-                        confirmButtonText: 'ตกลง',
-                        confirmButtonColor: '#ef4444'
-                    });
-                }
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('detailModal').style.display = 'none';
-        }
-
-        function closeEditModal() {
-            document.getElementById('editModal').style.display = 'none';
-        }
-
-        // Close modals when clicking outside
-        window.onclick = function(event) {
-            const detailModal = document.getElementById('detailModal');
-            const editModal = document.getElementById('editModal');
-            
-            if (event.target === detailModal) {
-                closeModal();
-            }
-            if (event.target === editModal) {
-                closeEditModal();
-            }
-        }
-
-        // Logo click to change logo
-        document.getElementById('logoImg').addEventListener('click', function() {
-            const newLogo = prompt('ใส่ URL ของโลโก้ใหม่:');
-            if (newLogo) {
-                this.src = newLogo;
-            }
-        });
-    </script>
-</body>
-</html>
