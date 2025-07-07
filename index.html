@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบลงทะเบียนงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
+    <title>ระบบลงทะเบียนเข้าร่วมงาน งานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -741,17 +740,17 @@
                 <form id="registrationForm">
                     <div class="form-group">
                         <label for="registrantName">คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้กรอกข้อมูล) *</label>
-                        <input type="text" id="registrantName" name="registrantName" required>
+                        <input type="text" id="registrantName" name="registrantName" placeholder="สำหรับ ผู้กรอกข้อมูล" required>
                     </div>
 
                     <div class="form-group">
                         <label for="registrantPhone">เบอร์โทรศัพท์ (ผู้กรอกข้อมูล) *</label>
-                        <input type="tel" id="registrantPhone" name="registrantPhone" pattern="[0-9]{10}" maxlength="10" required>
+                        <input type="tel" id="registrantPhone" name="registrantPhone" pattern="[0-9]{10}" maxlength="10" placeholder="สำหรับ ผู้กรอกข้อมูล" required>
                     </div>
 
                     <div class="form-group">
                         <label for="hospital">โรงพยาบาล/สถาบัน *</label>
-                        <input type="text" id="hospital" name="hospital" required>
+                        <input type="text" id="hospital" name="hospital" placeholder="ชื่อโรงพยาบาล/สถาบัน " required>
                     </div>
 
                     <div class="attendee-section">
@@ -765,11 +764,11 @@
                             <div class="attendee-item">
                                 <div class="form-group">
                                     <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                                    <input type="text" name="attendeeName[]" required>
+                                    <input type="text" name="attendeeName[]" placeholder="สำหรับ ผู้เข้าร่วมงาน" required>
                                 </div>
                                 <div class="form-group">
                                     <label>ตำแหน่ง</label>
-                                    <input type="text" name="attendeePosition[]" required>
+                                    <input type="text" name="attendeePosition[]" placeholder="สำหรับ ผู้เข้าร่วมงาน" required>
                                 </div>
                                 <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)" style="display: none;">
                                     <i class="fas fa-trash"></i>
