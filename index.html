@@ -1326,6 +1326,104 @@ function deleteRecord(id) {
 }
 
 </script>
+
+<script>
+  function handleDataResponse(response) {
+    if (response.success) {
+      console.log("Loaded data via JSONP:", response);
+      // ดำเนินการกับ response.data เช่น วาดตาราง หรือใส่ใน DOM
+    } else {
+      console.error("Error in JSONP response:", response.error);
+    }
+  }
+
+  function handleStatsResponse(response) {
+    if (response.success) {
+      console.log("Loaded stats via JSONP:", response.stats);
+    } else {
+      console.error("Stats load error:", response.error);
+    }
+  }
+
+  // โหลด JSONP แบบฝัง <script>
+  const scriptData = document.createElement("script");
+  scriptData.src = "https://script.google.com/macros/s/AKfycbxxxxxxx/exec?action=read&page=1&callback=handleDataResponse";
+  document.head.appendChild(scriptData);
+
+  const scriptStats = document.createElement("script");
+  scriptStats.src = "https://script.google.com/macros/s/AKfycbxxxxxxx/exec?action=getStats&callback=handleStatsResponse";
+  document.head.appendChild(scriptStats);
+</script>
+
+
+<script>
+  const API_URL = "https://script.google.com/macros/s/AKfycbxxxxxxx/exec"; // 🔁 เปลี่ยนเป็นของคุณ
+
+  // JSONP callback สำหรับโหลดข้อมูล
+  function handleDataResponse(response) {
+    if (response.success && response.data) {
+      console.log("📥 ข้อมูล:", response.data);
+      // แสดงข้อมูล CRUD เบื้องต้น
+      const table = document.createElement("table");
+      table.border = 1;
+      const header = "<tr><th>ชื่อ</th><th>โทร</th><th>โรงพยาบาล</th><th>จัดการ</th></tr>";
+      const rows = response.data.map(d => 
+        `<tr>
+          <td>${d.registrantName}</td>
+          <td>${d.registrantPhone}</td>
+          <td>${d.hospital}</td>
+          <td>
+            <button onclick="editRecord('${d.id}')">✏️</button>
+            <button onclick="deleteRecord('${d.id}')">🗑️</button>
+          </td>
+        </tr>`
+      ).join('');
+      table.innerHTML = header + rows;
+      document.body.appendChild(table);
+    } else {
+      console.error("ไม่สามารถโหลดข้อมูลได้", response.error);
+    }
+  }
+
+  function handleStatsResponse(response) {
+    if (response.success) {
+      console.log("📊 Stats:", response.stats);
+    }
+  }
+
+  // โหลด JSONP
+  const s1 = document.createElement("script");
+  s1.src = `${API_URL}?action=read&callback=handleDataResponse`;
+  document.head.appendChild(s1);
+
+  const s2 = document.createElement("script");
+  s2.src = `${API_URL}?action=getStats&callback=handleStatsResponse`;
+  document.head.appendChild(s2);
+
+  // ส่งข้อมูลด้วย fetch (create/update/delete)
+  function submitToGAS(payload) {
+    fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" }
+    })
+    .then(r => r.json())
+    .then(res => {
+      console.log("📤 ส่งข้อมูล:", res);
+      if (res.success) location.reload();
+    });
+  }
+
+  function deleteRecord(id) {
+    if (confirm("คุณต้องการลบข้อมูลนี้หรือไม่?")) {
+      submitToGAS({ action: "delete", id });
+    }
+  }
+
+  function editRecord(id) {
+    alert("⚠️ ส่วนแก้ไขข้อมูลยังไม่ได้ใส่ฟอร์มแก้ไขเต็ม (เดี๋ยวผมเพิ่มให้ได้)");
+  }
+</script>
 </body>
 </html><!DOCTYPE html>
 <html lang="th">
@@ -2422,5 +2520,3 @@ function deleteRecord(id) {
                 </form>
             </div>
         </div>
-
-                    
