@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -740,17 +741,17 @@
                 <form id="registrationForm">
                     <div class="form-group">
                         <label for="registrantName">คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้กรอกข้อมูล) *</label>
-                        <input type="text" id="registrantName" name="registrantName" placeholder="กรอก คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้กรอกข้อมูล)" required>
+                        <input type="text" id="registrantName" name="registrantName" required>
                     </div>
 
                     <div class="form-group">
                         <label for="registrantPhone">เบอร์โทรศัพท์ (ผู้กรอกข้อมูล) *</label>
-                        <input type="tel" id="registrantPhone" name="registrantPhone" pattern="[0-9]{10}" maxlength="10" placeholder="กรอก เบอร์โทรศัพท์ (ผู้กรอกข้อมูล)" required>
+                        <input type="tel" id="registrantPhone" name="registrantPhone" pattern="[0-9]{10}" maxlength="10" required>
                     </div>
 
                     <div class="form-group">
                         <label for="hospital">โรงพยาบาล/สถาบัน *</label>
-                        <input type="text" id="hospital" name="hospital" placeholder="กรอก โรงพยาบาล/สถาบัน" required>
+                        <input type="text" id="hospital" name="hospital" required>
                     </div>
 
                     <div class="attendee-section">
@@ -764,11 +765,11 @@
                             <div class="attendee-item">
                                 <div class="form-group">
                                     <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                                    <input type="text" name="attendeeName[]" placeholder="กรอก คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้เข้าร่วมงาน) "required>
+                                    <input type="text" name="attendeeName[]" required>
                                 </div>
                                 <div class="form-group">
                                     <label>ตำแหน่ง</label>
-                                    <input type="text" name="attendeePosition[]" placeholder="กรอก ตำแหน่ง (ผู้เข้าร่วมงาน) required>
+                                    <input type="text" name="attendeePosition[]" required>
                                 </div>
                                 <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)" style="display: none;">
                                     <i class="fas fa-trash"></i>
