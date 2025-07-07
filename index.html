@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบลงทะเบียนเข้าร่วมงาน งานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
+    <title>ระบบลงทะเบียนงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -740,17 +741,17 @@
                 <form id="registrationForm">
                     <div class="form-group">
                         <label for="registrantName">คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้กรอกข้อมูล) *</label>
-                        <input type="text" id="registrantName" name="registrantName" placeholder="กรอก คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้กรอกข้อมูล)" required>
+                        <input type="text" id="registrantName" name="registrantName" required>
                     </div>
 
                     <div class="form-group">
                         <label for="registrantPhone">เบอร์โทรศัพท์ (ผู้กรอกข้อมูล) *</label>
-                        <input type="tel" id="registrantPhone" name="registrantPhone" pattern="[0-9]{10}" maxlength="10" placeholder="กรอก เบอร์โทรศัพท์ (ผู้กรอกข้อมูล)" required>
+                        <input type="tel" id="registrantPhone" name="registrantPhone" pattern="[0-9]{10}" maxlength="10" required>
                     </div>
 
                     <div class="form-group">
                         <label for="hospital">โรงพยาบาล/สถาบัน *</label>
-                        <input type="text" id="hospital" name="hospital" placeholder="กรอก ชื่อโรงพยาบาล/สถาบัน" required>
+                        <input type="text" id="hospital" name="hospital" required>
                     </div>
 
                     <div class="attendee-section">
@@ -764,11 +765,11 @@
                             <div class="attendee-item">
                                 <div class="form-group">
                                     <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                                    <input type="text" name="attendeeName[]" placeholder="กรอก คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้เข้าร่วมงาน)" required>
+                                    <input type="text" name="attendeeName[]" required>
                                 </div>
                                 <div class="form-group">
                                     <label>ตำแหน่ง</label>
-                                    <input type="text" name="attendeePosition[]" placeholder="กรอก ตำแหน่ง (ผู้เข้าร่วมงาน)" required>
+                                    <input type="text" name="attendeePosition[]" required>
                                 </div>
                                 <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)" style="display: none;">
                                     <i class="fas fa-trash"></i>
@@ -1066,7 +1067,17 @@
             }
         }
 
+        // ลดเวลาหน่วงในการโหลดข้อมูลครั้งแรก
         async function loadDataWithRetry(page = 1, search = '') {
+            // แสดงสถิติเริ่มต้นก่อน
+            if (page === 1 && !search) {
+                displayStats({
+                    totalHospitals: 0,
+                    totalCars: 0,
+                    totalAttendees: 0
+                });
+            }
+            
             for (let attempt = 1; attempt <= MAX_LOAD_ATTEMPTS; attempt++) {
                 try {
                     updateDebugInfo(`Loading data attempt ${attempt}/${MAX_LOAD_ATTEMPTS}`);
@@ -1080,7 +1091,7 @@
                 }
                 
                 if (attempt < MAX_LOAD_ATTEMPTS) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // ลดจาก 2 วินาที
                 }
             }
             
@@ -1100,7 +1111,7 @@
                 }
                 
                 if (attempt < MAX_LOAD_ATTEMPTS) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise(resolve => setTimeout(resolve, 500)); // ลดเวลารอ
                 }
             }
             
@@ -1502,15 +1513,23 @@
 
         async function loadData(page = 1, search = '') {
             try {
+                updateDebugInfo(`Loading data - page: ${page}, search: "${search}"`);
+                
                 return new Promise((resolve) => {
                     const callbackName = 'handleDataResponse_' + Date.now();
                     let timeoutId;
+                    let completed = false;
                     
-                    window[callbackName] = function(result) {
+                    // สร้าง callback function และทำให้มั่นใจว่ามันอยู่ใน global scope
+                    const callbackFunction = function(result) {
+                        if (completed) return;
+                        completed = true;
+                        
                         clearTimeout(timeoutId);
+                        updateDebugInfo('Data loaded: ' + JSON.stringify(result));
                         
                         try {
-                            if (result.success) {
+                            if (result && result.success) {
                                 currentData = result.data || [];
                                 currentPage = result.pagination?.currentPage || 1;
                                 totalPages = result.pagination?.totalPages || 1;
@@ -1526,18 +1545,35 @@
                                 });
                                 resolve(true);
                             } else {
+                                console.error('Error loading data:', result ? result.error : 'No result');
                                 displayData([]);
                                 resolve(false);
                             }
                         } catch (error) {
+                            console.error('Error processing data:', error);
+                            displayData([]);
                             resolve(false);
                         }
                         
-                        const script = document.getElementById('jsonp-script-data');
-                        if (script && script.parentNode) {
-                            script.parentNode.removeChild(script);
+                        // ทำความสะอาด
+                        cleanup();
+                    };
+                    
+                    // กำหนด callback function ให้กับ window
+                    window[callbackName] = callbackFunction;
+                    
+                    const cleanup = () => {
+                        try {
+                            const script = document.getElementById('jsonp-script-data');
+                            if (script && script.parentNode) {
+                                script.parentNode.removeChild(script);
+                            }
+                            if (window[callbackName]) {
+                                delete window[callbackName];
+                            }
+                        } catch (e) {
+                            console.log('Cleanup error (ignored):', e);
                         }
-                        delete window[callbackName];
                     };
                     
                     const params = new URLSearchParams({
@@ -1554,25 +1590,38 @@
                     script.src = `${API_URL}?${params.toString()}`;
                     
                     script.onerror = function() {
+                        if (completed) return;
+                        completed = true;
+                        
                         clearTimeout(timeoutId);
+                        console.error('Failed to load data via JSONP');
+                        updateDebugInfo('Data JSONP script failed to load');
                         displayData([]);
-                        delete window[callbackName];
+                        cleanup();
                         resolve(false);
                     };
                     
+                    // Timeout
                     timeoutId = setTimeout(() => {
-                        const script = document.getElementById('jsonp-script-data');
-                        if (script && script.parentNode) {
-                            script.parentNode.removeChild(script);
-                        }
-                        delete window[callbackName];
+                        if (completed) return;
+                        completed = true;
+                        
+                        console.error('Data loading timeout');
+                        updateDebugInfo('Data loading timeout');
+                        displayData([]);
+                        cleanup();
                         resolve(false);
                     }, 15000);
                     
-                    document.head.appendChild(script);
+                    // รอสักครู่ให้ callback function ถูกสร้างก่อน
+                    setTimeout(() => {
+                        document.head.appendChild(script);
+                    }, 100);
                 });
                 
             } catch (error) {
+                console.error('Error loading data:', error);
+                updateDebugInfo('Data loading error: ' + error.message);
                 displayData([]);
                 return false;
             }
