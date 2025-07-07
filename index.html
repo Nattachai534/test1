@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบลงทะเบียน ผู้เข้าร่วมงาน งานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
+    <title>ระบบลงทะเบียนงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -719,7 +719,7 @@
             <div class="logo">
                 <img src="https://img2.pic.in.th/pic/Picture2-19f0391a0702ff1ee.png" alt="Logo" id="logoImg">
             </div>
-            <h1>ลงทะเบียน ผู้เข้าร่วมงาน งานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13</h1>
+            <h1>งานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13</h1>
             <p>ประจำปี 2568</p>
             <p>วันพุธที่ 27 สิงหาคม 2568 ตั้งแต่เวลา 17.00 – 22.00 น.</p>
             <p>ณ ห้องพิบูลสงคราม ชั้น 12 อาคารเฉลิมพระเกียรติฯ โรงพยาบาลราชวิถี</p>
@@ -764,11 +764,11 @@
                             <div class="attendee-item">
                                 <div class="form-group">
                                     <label>คำนำหน้า/(ยศ) ชื่อ–นามสกุล</label>
-                                    <input type="text" name="attendeeName[]" placeholder="กรอก คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้เข้าร่วมงาน)" required>
+                                    <input type="text" name="attendeeName[]" placeholder="กรอก คำนำหน้า/(ยศ) ชื่อ–นามสกุล (ผู้เข้าร่วมงาน) "required>
                                 </div>
                                 <div class="form-group">
                                     <label>ตำแหน่ง</label>
-                                    <input type="text" name="attendeePosition[]" placeholder="กรอก ตำแหน่ง (ผู้เข้าร่วมงาน)" required>
+                                    <input type="text" name="attendeePosition[]" placeholder="กรอก ตำแหน่ง (ผู้เข้าร่วมงาน) required>
                                 </div>
                                 <button type="button" class="btn-remove-attendee" onclick="removeAttendee(this)" style="display: none;">
                                     <i class="fas fa-trash"></i>
@@ -860,7 +860,6 @@
                                 <th>ลำดับ</th>
                                 <th>วันที่ลงทะเบียน</th>
                                 <th>ผู้ลงทะเบียน</th>
-                                <th>เบอร์โทร</th>
                                 <th>โรงพยาบาล/สถาบัน</th>
                                 <th>จำนวนผู้เข้าร่วม</th>
                                 <th>รถยนต์</th>
@@ -1691,7 +1690,7 @@
             if (data.length === 0) {
                 tableBody.innerHTML = `
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px; color: #6b7280;">
+                        <td colspan="7" style="text-align: center; padding: 40px; color: #6b7280;">
                             <div style="font-size: 1.2rem; margin-bottom: 10px;">🎯 ยังไม่มีข้อมูลการลงทะเบียน</div>
                             <div style="font-size: 1rem;">กรุณาลงทะเบียนเพื่อเริ่มใช้งานระบบ</div>
                         </td>
@@ -1710,7 +1709,6 @@
                         <td>${(currentPage - 1) * 10 + index + 1}</td>
                         <td>${new Date(record.timestamp).toLocaleString('th-TH')}</td>
                         <td>${record.registrantName}</td>
-                        <td>${record.registrantPhone}</td>
                         <td>
                             <span class="hospital-tag" style="background-color: ${hospitalColor}">
                                 ${record.hospital}
@@ -2031,6 +2029,9 @@
                 `<li>${a.name} (${a.position})</li>`
             ).join('');
             
+            // แสดงเบอร์โทรเต็มในหน้ารายละเอียด
+            const fullPhone = record.registrantPhone || 'ไม่ระบุ';
+            
             modalBody.innerHTML = `
                 <div class="detail-item">
                     <div class="detail-label">วันที่ลงทะเบียน</div>
@@ -2042,7 +2043,11 @@
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">เบอร์โทรศัพท์</div>
-                    <div class="detail-value">${record.registrantPhone}</div>
+                    <div class="detail-value">
+                        <span style="font-family: monospace; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-weight: 600;">
+                            ${fullPhone}
+                        </span>
+                    </div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">โรงพยาบาล/สถาบัน</div>
@@ -2077,7 +2082,8 @@
             
             document.getElementById('editId').value = record.id;
             document.getElementById('editRegistrantName').value = record.registrantName;
-            document.getElementById('editRegistrantPhone').value = record.registrantPhone;
+            // แสดงเบอร์โทรเต็ม 10 หลักในหน้าแก้ไข
+            document.getElementById('editRegistrantPhone').value = record.registrantPhone || '';
             document.getElementById('editHospital').value = record.hospital;
             
             if (record.hasCar === 'มีรถยนต์') {
