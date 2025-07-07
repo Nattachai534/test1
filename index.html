@@ -1,4 +1,3 @@
-
     <script>
         const API_URL = 'https://script.google.com/macros/s/AKfycbyi6Psi8QMadZp6aWd0qHcb5S7L4mNdzgRVfkv3aIrIjD9IhiDtqTe74g0xCTQ82lvDvg/exec';
         let currentPage = 1;
@@ -1254,6 +1253,78 @@ function confirmUpdate() {
     });
 }
 
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('editForm')?.addEventListener('submit', handleEditSubmit);
+});
+
+
+function handleEditSubmit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const payload = {
+        action: 'update',
+        id: formData.get('id'),
+        registrantName: formData.get('registrantName'),
+        registrantPhone: formData.get('registrantPhone'),
+        hospital: formData.get('hospital'),
+        hasCar: formData.get('hasCar'),
+        carCount: formData.get('carCount'),
+        carDetails: formData.get('carDetails'),
+        attendees: []
+    };
+
+    const nameFields = form.querySelectorAll('input[name="attendeeName[]"]');
+    const posFields = form.querySelectorAll('input[name="attendeePosition[]"]');
+    for (let i = 0; i < nameFields.length; i++) {
+        payload.attendees.push({
+            name: nameFields[i].value,
+            position: posFields[i].value
+        });
+    }
+
+    submitToGAS(payload);
+}
+
+
+function confirmUpdate() {
+    Swal.fire({
+        title: 'ยืนยันการอัปเดต',
+        text: "คุณต้องการบันทึกการเปลี่ยนแปลงหรือไม่?",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'ใช่, อัปเดต',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            document.getElementById('editForm').requestSubmit();
+        }
+    });
+}
+
+
+function deleteRecord(id) {
+    Swal.fire({
+        title: 'คุณแน่ใจหรือไม่?',
+        text: "เมื่อลบแล้วจะไม่สามารถกู้คืนได้!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'ใช่, ลบเลย',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const payload = {
+                action: 'delete',
+                id: id
+            };
+            submitToGAS(payload);
+        }
+    });
+}
+
 </script>
 </body>
 </html><!DOCTYPE html>
@@ -1278,6 +1349,78 @@ function confirmUpdate() {
     }).then((result) => {
         if (result.isConfirmed) {
             document.getElementById('editForm').requestSubmit();
+        }
+    });
+}
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('editForm')?.addEventListener('submit', handleEditSubmit);
+});
+
+
+function handleEditSubmit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const payload = {
+        action: 'update',
+        id: formData.get('id'),
+        registrantName: formData.get('registrantName'),
+        registrantPhone: formData.get('registrantPhone'),
+        hospital: formData.get('hospital'),
+        hasCar: formData.get('hasCar'),
+        carCount: formData.get('carCount'),
+        carDetails: formData.get('carDetails'),
+        attendees: []
+    };
+
+    const nameFields = form.querySelectorAll('input[name="attendeeName[]"]');
+    const posFields = form.querySelectorAll('input[name="attendeePosition[]"]');
+    for (let i = 0; i < nameFields.length; i++) {
+        payload.attendees.push({
+            name: nameFields[i].value,
+            position: posFields[i].value
+        });
+    }
+
+    submitToGAS(payload);
+}
+
+
+function confirmUpdate() {
+    Swal.fire({
+        title: 'ยืนยันการอัปเดต',
+        text: "คุณต้องการบันทึกการเปลี่ยนแปลงหรือไม่?",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'ใช่, อัปเดต',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            document.getElementById('editForm').requestSubmit();
+        }
+    });
+}
+
+
+function deleteRecord(id) {
+    Swal.fire({
+        title: 'คุณแน่ใจหรือไม่?',
+        text: "เมื่อลบแล้วจะไม่สามารถกู้คืนได้!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'ใช่, ลบเลย',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const payload = {
+                action: 'delete',
+                id: id
+            };
+            submitToGAS(payload);
         }
     });
 }
@@ -2279,5 +2422,3 @@ function confirmUpdate() {
                 </form>
             </div>
         </div>
-
-                    
