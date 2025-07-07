@@ -1,3 +1,4 @@
+
     <script>
         const API_URL = 'https://script.google.com/macros/s/AKfycbyi6Psi8QMadZp6aWd0qHcb5S7L4mNdzgRVfkv3aIrIjD9IhiDtqTe74g0xCTQ82lvDvg/exec';
         let currentPage = 1;
@@ -1235,7 +1236,25 @@
                 closeEditModal();
             }
         }
-    </script>
+    
+function confirmUpdate() {
+    Swal.fire({
+        title: 'ยืนยันการอัปเดต',
+        text: "คุณต้องการบันทึกการเปลี่ยนแปลงหรือไม่?",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'ใช่, อัปเดต',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            document.getElementById('editForm').requestSubmit();
+        }
+    });
+}
+
+</script>
 </body>
 </html><!DOCTYPE html>
 <html lang="th">
@@ -1245,7 +1264,25 @@
     <title>ระบบลงทะเบียนงานแสดงมุทิตาจิตแด่ผู้เกษียณอายุราชการ เขต 13 ประจำปี 2568</title>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11">
+function confirmUpdate() {
+    Swal.fire({
+        title: 'ยืนยันการอัปเดต',
+        text: "คุณต้องการบันทึกการเปลี่ยนแปลงหรือไม่?",
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'ใช่, อัปเดต',
+        cancelButtonText: 'ยกเลิก'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            document.getElementById('editForm').requestSubmit();
+        }
+    });
+}
+
+</script>
     <style>
         * {
             margin: 0;
@@ -2087,6 +2124,8 @@
                         <h4>ข้อมูลการดีบัก:</h4>
                         <div id="debugContent"></div>
                     </div>
+                
+
                 </form>
             </div>
         </div>
@@ -2192,8 +2231,53 @@
                         </div>
                         <div id="editAttendeeList">
                             <!-- Edit attendees will be populated here -->
-                        </div>
                     </div>
 
                     <div class="form-group">
                         <label>ท่านมีรถยนต์มาหรือไม่ *</label>
+                        <div class="radio-group">
+                            <div class="radio-item" onclick="selectRadio('editHasCar')">
+                                <input type="radio" id="editHasCar" name="hasCar" value="มีรถยนต์" onchange="toggleEditCarSection()">
+                                <label for="editHasCar">มีรถยนต์</label>
+                            </div>
+                            <div class="radio-item" onclick="selectRadio('editNoCar')">
+                                <input type="radio" id="editNoCar" name="hasCar" value="ไม่มี" onchange="toggleEditCarSection()">
+                                <label for="editNoCar">ไม่มี</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="editCarSection" class="car-section">
+                        <div class="form-group">
+                            <label for="editCarCount">นำรถยนต์มากี่คัน</label>
+                            <select id="editCarCount" name="carCount">
+                                <option value="">เลือกจำนวนรถ</option>
+                                <option value="1">1 คัน</option>
+                                <option value="2">2 คัน</option>
+                                <option value="3">3 คัน</option>
+                                <option value="4">4 คัน</option>
+                                <option value="5">5 คัน</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editCarDetails">กรอกสีรถยนต์/ป้ายทะเบียนรถ</label>
+                            <textarea id="editCarDetails" name="carDetails" rows="3" placeholder="เช่น รถสีขาว ป้ายทะเบียน กข 1234"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+
+                        </div>
+                    </div>
+                    <div class="form-group" style="text-align: center; margin-top: 20px;">
+                        <button type="button" class="btn-submit" id="updateBtn" onclick="confirmUpdate()">
+                            <i class="fas fa-save"></i> อัปเดตข้อมูล
+                        </button>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+                    
